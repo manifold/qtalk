@@ -1,0 +1,26 @@
+<html>
+<body>
+<script src="../dist/browser/qmux.min.js" type="text/javascript"></script>
+<script>
+
+(async () => {
+
+    var sess = new qmux.Session(await qmux.DialWebsocket("ws://localhost:8000/"));
+    var ch = await sess.accept();
+    await ch.write(qmux.Buffer.from("Hello"));
+    await ch.write(qmux.Buffer.from(" "));
+    await ch.write(qmux.Buffer.from("web browser"));
+
+    var data = await ch.read(17);
+    console.log(data.toString('ascii'));
+
+    await sess.close();
+
+})().catch(async (err) => { 
+console.log(err.stack);
+});
+
+
+</script>
+</body>
+</html>

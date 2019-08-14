@@ -1,0 +1,15 @@
+{
+    "compilerOptions": {
+      "baseUrl": ".",
+      "outDir": "./dist/browser",
+      "target": "es5",
+      "esModuleInterop": true,
+      "resolveJsonModule": true,
+      "module": "commonjs",
+      "moduleResolution": "node",
+      "lib": ["es2016", "dom", "es5"]
+    },
+    "include": [
+      "./src/qrpc.ts"
+    ]
+  }
