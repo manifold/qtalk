@@ -208,7 +208,10 @@ var TCPConn = /** @class */ (function () {
 exports.TCPConn = TCPConn;
 function DialWebsocket(addr) {
     return new Promise(function (resolve, reject) {
-        var socket = new WebSocket(addr, { perMessageDeflate: false });
+        var socket = new WebSocket(addr, {
+            perMessageDeflate: false,
+            origin: 'https://' + addr
+        });
         socket.on("open", function () {
             resolve(new WebsocketConn(socket));
         });

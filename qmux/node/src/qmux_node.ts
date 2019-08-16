@@ -192,7 +192,10 @@ export class TCPConn implements IConn {
 
 export function DialWebsocket(addr: string): Promise<IConn> {
     return new Promise((resolve, reject) => {
-        var socket = new WebSocket(addr, {perMessageDeflate: false});
+        var socket = new WebSocket(addr, {
+            perMessageDeflate: false,
+            origin: 'https://'+addr
+        });
         socket.on("open", () => {
             resolve(new WebsocketConn(socket));
         });
