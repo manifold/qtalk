@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/progrium/prototypes/libmux/mux"
-	"github.com/progrium/prototypes/qrpc"
-	"github.com/progrium/prototypes/qrpc/bus"
+	"github.com/manifold/qtalk/libmux/mux"
+	"github.com/manifold/qtalk/qrpc"
+	"github.com/manifold/qtalk/qrpc/bus"
 )
 
 const busAddr = "localhost:4242"

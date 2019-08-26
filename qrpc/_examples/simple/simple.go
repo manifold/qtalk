@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/progrium/prototypes/libmux/mux"
-	"github.com/progrium/prototypes/qrpc"
+	"github.com/manifold/qtalk/libmux/mux"
+	"github.com/manifold/qtalk/qrpc"
 )
 
 const addr = "localhost:4242"

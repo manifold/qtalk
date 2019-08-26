@@ -7,7 +7,7 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/progrium/prototypes/qmux"
+	"github.com/manifold/qtalk/qmux/go"
 	"golang.org/x/net/websocket"
 )
 

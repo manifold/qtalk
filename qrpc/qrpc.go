@@ -6,7 +6,7 @@ import (
 	path_ "path"
 	"strings"
 
-	"github.com/progrium/prototypes/libmux/mux"
+	"github.com/manifold/qtalk/libmux/mux"
 )
 
 type Call struct {
