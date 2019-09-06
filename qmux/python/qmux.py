@@ -1,6 +1,35 @@
 from typing import Callable, Dict, List
+from abc import ABC, abstractmethod
 from functools import reduce
 import asyncio
+
+class IConn(ABC):
+	@abstractmethod
+	def read(self, length:int) -> 'asyncio.Future':
+		pass
+
+	@abstractmethod
+	def write(self, buffer:bytes):
+		pass
+
+	@abstractmethod
+	def close(self):
+		pass
+
+class TCPConn(IConn):
+	def __init__(self, reader, writer):
+		self.reader = reader
+		self.writer = writer
+
+	async def read(self, length:int) -> 'asyncio.Future':
+		return await self.reader.read(length)
+
+	def write(self, buffer:bytes):
+		self.writer.write(buffer)
+
+	def close(self):
+		self.writer.close()
+
 
 class DataView():
 	def __init__(self, array):
@@ -119,24 +148,13 @@ class queue():
 		for waiter in self.waiters:
 			waiter(None)
 
-class Iconn():
-	def __init__(self):
-		pass
 		
-class ISession():
-	def __init__(self):
-		pass
-
-class IChannel():
-	def ident(self) -> int:
-		pass
-
 class Session():
-	def __init__(self, conn=Iconn, channels=[], incoming=queue):
-		self.conn = conn()
+	def __init__(self, conn:'IConn', spawn):
+		self.conn = conn
 		self.channels = []
 		self.incoming = queue()
-		#self.loop() <---- so it doesn't throw a RuntimeWarning
+		spawn(self.loop())
 
 	async def readPacket(self) -> 'asyncio.Future':
 		sizes = {
@@ -254,8 +272,8 @@ class Channel():
 	remoteId:int
 	maxIncomingPayload:int
 	maxRemotePayload:int
-	session = Session()
-	ready = queue()
+	session:'Session'
+	ready:'queue'
 	sentEOF:bool
 	sentClose:bool
 	remoteWin:int
