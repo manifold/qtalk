@@ -1,21 +1,25 @@
 import asyncio
+from qmux import Session, TCPConn, IConn, DataView, EmptyArray
 
 @asyncio.coroutine
 def handle_echo(reader, writer):
-    data = yield from reader.read(100)
+    conn = TCPConn(reader, writer)
+    sess = Session(conn, loop.create_task)
+
+    ch = yield from sess.open()
+    ch.write(b"tester echo")
+    # close? send might not have finished
+
+    ch = yield from sess.accept()
+    data = yield from ch.read(11)
     message = data.decode()
     addr = writer.get_extra_info('peername')
     print("Received %r from %r" % (message, addr))
-
-    print("Send: %r" % message)
-    writer.write(data)
-    yield from writer.drain()
-
     print("Client socket closed")
     writer.close()
 
 loop = asyncio.get_event_loop()
-coro = asyncio.start_server(handle_echo, '127.0.0.1', 8888, loop=loop)
+coro = asyncio.start_server(handle_echo, '127.0.0.1', 9998, loop=loop)
 server = loop.run_until_complete(coro)
 
 # Serve requests until Ctrl+C is pressed

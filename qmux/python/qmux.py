@@ -5,7 +5,7 @@ import asyncio, pdb
 
 class DataView():
 	def __init__(self, array, bytes_per_element=1):
-		self.array = array
+		self.array = array # TODO: renaming array to buffer?
 		#self.bytes_per_element = bytes_per_element # should this be re-written?
 
 	def __get_binary(self, start_index, byte_count, signed=False):
@@ -140,6 +140,7 @@ class TCPConn(IConn):
 		return await self.reader.read(length)
 
 	def write(self, buffer:bytes):
+		# TODO: think about draining
 		self.writer.write(buffer)
 
 	def close(self):
@@ -249,8 +250,8 @@ class Session():
 			if v == None:
 				self.channels[i] = ch
 				return i
-		self.channels.shift(ch)
-		return len(self.channels.length)-1
+		self.channels.append(ch)
+		return len(self.channels)-1
 
 	def rmCh(self, id: int):
 		self.channels[id] = None
@@ -394,33 +395,33 @@ class Channel():
 		self.sentEOF = True
 		await self.sendMessage(msgChannelEOF, channelEOFMsg(self.remoteId))
 
-def encode(type: int, obj) -> list:
+def encode(type: int, obj) -> bytes:
 	if type == msgChannelClose:
 		data = DataView(EmptyArray(5))
 		data.setUint8(0, type)
 		data.setUint32(1, obj.peersID)
-		return data.array
+		return bytes(data.array)
 	elif type == msgChannelData:
 		data = DataView(EmptyArray(9))
 		data.setUint8(0, type)
 		data.setUint32(1, obj.peersID)
 		data.setUint32(5, obj.length)
-		buf:list = []
-		buf[0] = EmptyArray(len(data.array))
+		buf:list = EmptyArray(9+obj.length)
+		buf[0] = data.array
 		buf[9] = obj.rest
-		return buf
+		return bytes(buf)
 	elif type == msgChannelEOF:
 		data = DataView(EmptyArray(5))
 		data.setUint8(0, type)
 		data.setUint32(1, obj.peersID)
-		return data.array
+		return bytes(data.array)
 	elif type == msgChannelOpen:
 		data = DataView(EmptyArray(13))
 		data.setUint8(0, type)
 		data.setUint32(1, obj.peersID)
 		data.setUint32(5, obj.peersWindow)
 		data.setUint32(9, obj.maxPacketSize)
-		return data.array
+		return bytes(data.array)
 	elif type == msgChannelOpenConfirm:
 		data = DataView(EmptyArray(17))
 		data.setUint8(0, type)
@@ -428,18 +429,18 @@ def encode(type: int, obj) -> list:
 		data.setUint32(5, obj.myID)
 		data.setUint32(9, obj.myWindow)
 		data.setUint32(13, obj.maxPacketSize)
-		return data.array
+		return bytes(data.array)
 	elif type == msgChannelOpenFailure:
 		data = DataView(EmptyArray(5))
 		data.setUint8(0, type)
 		data.setUint32(1, obj.peersID)
-		return data.array
+		return bytes(data.array)
 	elif type == msgChannelWindowAdjust:
 		data = DataView(EmptyArray(9))
 		data.setUint8(0, type)
 		data.setUint32(1, obj.peersID)
 		data.setUint32(5, obj.additionalBytes)
-		return data.array
+		return bytes(data.array)
 	raise Exception("unknown type")
 
 def decode(packet: list):
