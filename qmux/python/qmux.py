@@ -1,44 +1,16 @@
 from typing import Callable, Dict, List
 from abc import ABC, abstractmethod
 from functools import reduce
-import asyncio
-
-class IConn(ABC):
-	@abstractmethod
-	def read(self, length:int) -> 'asyncio.Future':
-		pass
-
-	@abstractmethod
-	def write(self, buffer:bytes):
-		pass
-
-	@abstractmethod
-	def close(self):
-		pass
-
-class TCPConn(IConn):
-	def __init__(self, reader, writer):
-		self.reader = reader
-		self.writer = writer
-
-	async def read(self, length:int) -> 'asyncio.Future':
-		return await self.reader.read(length)
-
-	def write(self, buffer:bytes):
-		self.writer.write(buffer)
-
-	def close(self):
-		self.writer.close()
-
+import asyncio, pdb
 
 class DataView():
-	def __init__(self, array):
+	def __init__(self, array, bytes_per_element=1):
 		self.array = array
-		self.bytes_per_element = 1
+		#self.bytes_per_element = bytes_per_element # should this be re-written?
 
 	def __get_binary(self, start_index, byte_count, signed=False):
-		integers = [self.array[start_index + x] for x in range(byte_count)]
-		bytes = [integer.to_bytes(self.bytes_per_element, byteorder='little', signed=signed) for integer in integers]
+		integers = [self.array[start_index] for x in range(byte_count)]
+		bytes = [integer.to_bytes(1, byteorder='little', signed=signed) for integer in integers]
 		return reduce(lambda a, b: a + b, bytes)
 
 	def getUint8(self, start_index) -> int:
@@ -132,10 +104,8 @@ class queue():
 			return
 		self.q.append(obj)
 
-	# first attempt at writing a "promise"
-
 	def shift(self) -> 'asyncio.Future':
-		if self.closed: raise Exception("closed queue") # instead of returning a future
+		if self.closed: raise Exception("closed queue")
 		promise:'asyncio.Future' = asyncio.Future()
 		if self.q:
 			promise.set_result(self.q[0])
@@ -148,31 +118,58 @@ class queue():
 		for waiter in self.waiters:
 			waiter(None)
 
-		
+class IConn(ABC):
+	@abstractmethod
+	async def read(self, length:int) -> 'asyncio.Future':
+		pass
+	
+	@abstractmethod
+	def write(self, buffer:bytes) -> 'asyncio.Future':
+		pass
+
+	@abstractmethod
+	def close(self):
+		pass
+
+class TCPConn(IConn):
+	def __init__(self, reader, writer):
+		self.reader = reader
+		self.writer = writer
+
+	async def read(self, length:int) -> 'asyncio.Future':
+		return await self.reader.read(length)
+
+	def write(self, buffer:bytes):
+		self.writer.write(buffer)
+
+	def close(self):
+		self.writer.close()
+
 class Session():
 	def __init__(self, conn:'IConn', spawn):
 		self.conn = conn
-		self.channels = []
+		self.channels:list = []
 		self.incoming = queue()
 		spawn(self.loop())
 
 	async def readPacket(self) -> 'asyncio.Future':
 		sizes = {
-			"msgChannelOpen": 12,
-			"msgChannelOpenConfirm": 16,
-			"msgChannelOpenFailure": 4,
-			"msgChannelWindowAdjust": 8,
-			"msgChannelData": 8,
-			"msgChannelEOF": 4,
-			"msgChannelClose": 4,
+			msgChannelOpen: 12,
+			msgChannelOpenConfirm: 16,
+			msgChannelOpenFailure: 4,
+			msgChannelWindowAdjust: 8,
+			msgChannelData: 8,
+			msgChannelEOF: 4,
+			msgChannelClose: 4,
 		}
 		msg = await self.conn.read(1)
 		promise: 'asyncio.Future' = asyncio.Future()
 		if msg == None:
+			promise.set_result(None)
 			return promise
 		if msg[0] < msgChannelOpen or msg[0] > msgChannelClose:
 			raise Exception("bad packet: %s" % msg[0])
-		rest = await self.conn.read(sizes.get(msg[0]))
+		rest = await self.conn.read(sizes.get(msg[0])) # changes?
 		if rest == None:
 			raise Exception("unexpected EOF")
 		if msg[0] == msgChannelData:
@@ -181,9 +178,9 @@ class Session():
 			data = await self.conn.read(length)
 			if data == None:
 				raise Exception("unexpected EOF")
-			promise.set_result([msg, rest, data, length+len(rest)+1])
+			promise.set_result([*msg, *rest, *data]) # change this later
 			return promise
-		promise.set_result([msg, rest, len(rest)])
+		promise.set_result([*msg, *rest]) # this too
 		return promise
 
 	async def handleChannelOpen(self, packet: list):
@@ -227,17 +224,19 @@ class Session():
 				if packet == None:
 					self.close()
 					return
-				if packet[0] == msgChannelOpen:
+				if packet.result()[0] == msgChannelOpen: # added a .result()
 					await self.handleChannelOpen(packet)
 					continue
-				data = DataView(EmptyArray(packet))
+				pdb.set_trace()
+				data = DataView(packet.result()) # changes
 				id = data.getUint32(1)
-				ch = self.getCh(id)
+				pdb.set_trace()
+				ch = self.getCh(0) # edit this back to id
 				if ch == None:
 					raise Exception("invalid channel (%s) on op %s" % (id, packet[0]))
 				await ch.handlePacket(data)
 		except:
-			raise Exception("session readloop") # not sure how to pass the e argument here
+			raise Exception("session readloop")
 
 	def getCh(self, id: int) -> 'Channel':
 		ch = self.channels[id]
@@ -345,7 +344,7 @@ class Channel():
 		# TODO
 		return
     
-	def read(self, length) -> 'asyncio.Future': # so the argument doesn't replace len() function
+	def read(self, length) -> 'asyncio.Future':
 		promise: 'asyncio.Future' = asyncio.Future()
 		def tryRead():
 			if self.readbuf:
@@ -354,10 +353,10 @@ class Channel():
 			if len(self.readbuf) >= length:
 				data = self.readBuf[0:length]
 				self.readBuf = self[length]
-				promise: 'asyncio.Future' = asyncio.Future()
 				promise.set_result(data)
 				return promise
 			self.readers.append(tryRead)
+		promise.set_result(tryRead())
 		return promise
 
 	def write(self, buffer: list) -> 'asyncio.Future':
@@ -441,8 +440,7 @@ def encode(type: int, obj) -> list:
 		data.setUint32(1, obj.peersID)
 		data.setUint32(5, obj.additionalBytes)
 		return data.array
-	else:
-		raise Exception("unknown type")
+	raise Exception("unknown type")
 
 def decode(packet: list):
 	packetBuf = EmptyArray(len(packet))
@@ -476,6 +474,5 @@ def decode(packet: list):
 		data = DataView(packetBuf)
 		adjustMsg = channelWindowAdjustMsg(data.getUint32(1), data.getUint32(5))
 		return adjustMsg
-	else:
-		raise Exception("unknown type")
+	raise Exception("unknown type")
 		
