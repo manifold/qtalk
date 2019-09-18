@@ -100,13 +100,14 @@ class queue():
 	def push(self, obj):
 		if self.closed: raise Exception("closed queue")
 		if len(self.waiters) > 0:
-			self.waiters.pop(0).result()(obj)
+			self.waiters.pop(0).result()(obj) # check this one out too
 			return
 		self.q.append(obj)
 
 	def shift(self) -> 'asyncio.Future':
 		if self.closed: return
 		promise:'asyncio.Future' = asyncio.Future()
+		pdb.set_trace()
 		if len(self.q) > 0:
 			promise.set_result(self.q[0])
 			return promise
@@ -170,7 +171,6 @@ class Session():
 		promise: 'asyncio.Future' = asyncio.Future()
 		if msg == None:
 			promise.set_result(None)
-			print(promise.result())
 			return promise
 		if msg[0] < msgChannelOpen or msg[0] > msgChannelClose:
 			raise Exception("bad packet: %s" % msg[0])
@@ -184,10 +184,8 @@ class Session():
 			if data == None:
 				raise Exception("unexpected EOF")
 			promise.set_result([*msg, *rest, *data])
-			print(promise.result())
 			return promise
 		promise.set_result([*msg, *rest])
-		print(promise.result())
 		return promise
 
 	async def handleChannelOpen(self, packet: list):
@@ -200,13 +198,15 @@ class Session():
 		c.maxRemotePayload = msg.maxPacketSize
 		c.remoteWin = msg.peersWindow
 		c.maxIncomingPayload = channelMaxPacket
+		#pdb.set_trace() # check this one later
 		self.incoming.push(c)
 		await self.conn.write(encode(msgChannelOpenConfirm, channelOpenConfirmMsg(c.remoteId, c.localId, c.myWindow, c.maxIncomingPayload)))
 
 	async def open(self) -> 'asyncio.Future':
 		ch = self.newChannel()
 		ch.maxIncomingPayload = channelMaxPacket
-		await self.conn.write(encode(msgChannelOpen, channelOpenMsg(ch.myWindow, ch.maxIncomingPayload, ch.localId))) # this long call returns a None, can't use await
+		self.conn.write(encode(msgChannelOpen, channelOpenMsg(ch.myWindow, ch.maxIncomingPayload, ch.localId))) # write is not async so shouldn't be awaited
+		
 		if ch.ready.shift(): # removed await before ch.ready.shift (shift is not async so i guess it shouldn't be here)
 			promise: 'asyncio.Future' = asyncio.Future()
 			promise.set_result(ch)
@@ -227,7 +227,7 @@ class Session():
 	async def loop(self):
 		try:
 			while True:
-				packet = self.spawn(self.readPacket()) # try to make this return a result
+				packet = await self.readPacket()
 				if packet == None:
 					self.close()
 					return
@@ -272,17 +272,17 @@ class Session():
 		raise Exception("session closed")
 
 class Channel():
-	localId:int
-	remoteId:int
-	maxIncomingPayload:int
-	maxRemotePayload:int
-	session:'Session'
-	ready:'queue'
-	sentEOF:bool
-	sentClose:bool
-	remoteWin:int
-	myWindow:int
-	readBuf:list
+	localId = 0
+	remoteId = 0
+	maxIncomingPayload = 0
+	maxRemotePayload = 0
+	session = Session
+	ready = queue
+	sentEOF = None
+	sentClose = None
+	remoteWin = 0
+	myWindow = 0 
+	readBuf = []
 	readers:List[Callable]
 
 	def ident(self) -> int:
@@ -373,8 +373,9 @@ class Channel():
 		packet = EmptyArray(9+len(buffer))
 		packet[0] = header.buffer
 		packet[9] = EmptyArray(len(buffer))
+		actual_packet = [*header.buffer, *EmptyArray(8), *packet[9], *EmptyArray(len(buffer))] # so the packet doesn't have arrays inside
 		promise: 'asyncio.Future' = asyncio.Future()
-		promise.set_result(self.sendPacket(packet))
+		promise.set_result(self.sendPacket(bytes(actual_packet)))
 		return promise
 
 	def handleClose(self):
