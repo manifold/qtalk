@@ -1,30 +1,32 @@
 from typing import Callable, Dict, List
 from abc import ABC, abstractmethod
 from functools import reduce
-import asyncio, pdb
+import asyncio, struct, pdb
 
-class DataView():
+class DataView(): # time to re-write this 
 	def __init__(self, buffer, bytes_per_element=1):
-		self.buffer = buffer
-		self.bytes_per_element = bytes_per_element # should this be re-written?
+		self.buffer = buffer # bytes(buffer)
+		self.bytes_per_element = bytes_per_element # to be discussed
 
-	def __get_binary(self, start_index, byte_count, signed=False):
+	def __get_binary(self, start_index, byte_count, signed=False): 
 		integers = [self.buffer[start_index] for x in range(byte_count)]
 		bytes_list = [integer.to_bytes(self.bytes_per_element, byteorder='little', signed=signed) for integer in integers]
 		return reduce(lambda a, b: a + b, bytes_list)
 
-	def getUint8(self, start_index) -> int:
+	def getUint8(self, start_index):
 		bytes_to_read = 1
-		return int.from_bytes(self.__get_binary(start_index, bytes_to_read), byteorder='little')
+		binary = self.__get_binary(start_index, bytes_to_read)
+		return struct.unpack('<f', binary)[0] # talk about this
 
 	def setUint8(self, index, number):
 		if number > 255 or number < 0:
 			number = number % 255
 		self.buffer[index] = number
 
-	def getUint16(self, start_index) -> int:
+	def getUint16(self, start_index):
 		bytes_to_read = 2
-		return int.from_bytes(self.__get_binary(start_index, bytes_to_read), byteorder='little')
+		binary = self.__get_binary(start_index, bytes_to_read)
+		return struct.unpack('<f', binary)[0] # and this
 
 	def setUint16(self, index, number):
 		if number > 65535 or number < 0:
@@ -33,7 +35,8 @@ class DataView():
 
 	def getUint32(self, start_index) -> int:
 		bytes_to_read = 4
-		return int.from_bytes(self.__get_binary(start_index, bytes_to_read), byteorder='little')
+		binary = self.__get_binary(start_index, bytes_to_read)
+		return struct.unpack('<f', binary)[0] # and this
 
 	def setUint32(self, index, number):
 		if number > 4294967295 or number < 0:
@@ -41,7 +44,7 @@ class DataView():
 		self.buffer[index] = number
 
 def EmptyArray(length):
-	return [0] * length # changed None to 0 so it could work with DataView
+	return [0] * length
 
 msgChannelOpen = 100
 msgChannelOpenConfirm = 101
@@ -107,13 +110,12 @@ class queue():
 	def shift(self) -> 'asyncio.Future':
 		if self.closed: return
 		promise:'asyncio.Future' = asyncio.Future()
-		pdb.set_trace()
 		if len(self.q) > 0:
-			promise.set_result(self.q[0])
+			promise.set_result(self.q.pop(0))
 			return promise
 		else:
 			promise.set_result(None)
-		self.waiters.append(promise)
+		self.waiters.append(promise.result())
 		return promise
 
 	def	close(self):
@@ -375,7 +377,7 @@ class Channel():
 		packet[9] = EmptyArray(len(buffer))
 		actual_packet = [*header.buffer, *EmptyArray(8), *packet[9], *EmptyArray(len(buffer))] # so the packet doesn't have arrays inside
 		promise: 'asyncio.Future' = asyncio.Future()
-		promise.set_result(self.sendPacket(bytes(actual_packet)))
+		promise.set_result(self.sendPacket(actual_packet))
 		return promise
 
 	def handleClose(self):

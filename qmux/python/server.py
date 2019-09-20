@@ -9,8 +9,9 @@ def handle_echo(reader, writer):
     ch.result().write(b"tester echo")
     # close? send might not have finished
 
-    ch = yield from sess.accept()
-    data = yield from ch.result().read(11) # returns none because there are no elements in queue.q list
+    ch = yield from sess.accept() # returns a future with None result, investigate this later
+    pdb.set_trace()
+    data = yield from ch.result().read(11) # no elements in queue.q, can't read
     message = data.decode()
     addr = writer.get_extra_info('peername')
     print("Received %r from %r" % (message, addr))
