@@ -1,48 +1,49 @@
 from typing import Callable, Dict, List
 from abc import ABC, abstractmethod
 from functools import reduce
-import asyncio, struct, pdb
+import asyncio, pdb, importlib
 
-class DataView(): # time to re-write this 
-	def __init__(self, buffer, bytes_per_element=1):
-		self.buffer = buffer # bytes(buffer)
-		self.bytes_per_element = bytes_per_element # to be discussed
-
-	def __get_binary(self, start_index, byte_count, signed=False): 
-		integers = [self.buffer[start_index] for x in range(byte_count)]
-		bytes_list = [integer.to_bytes(self.bytes_per_element, byteorder='little', signed=signed) for integer in integers]
-		return reduce(lambda a, b: a + b, bytes_list)
-
-	def getUint8(self, start_index):
-		bytes_to_read = 1
-		binary = self.__get_binary(start_index, bytes_to_read)
-		return struct.unpack('<f', binary)[0] # talk about this
-
+class DataView():
+	def __init__(self, buffer):
+		self.buffer = [bytes(element) for element in buffer]
+     
+	def getUint8(self, index):
+		try:
+			return int.from_bytes(int.from_bytes(self.buffer[index], 'big').to_bytes(1, 'little'), 'big')
+		except OverflowError:	
+			if int.from_bytes(self.buffer[index], 'big') <= 65535:
+				return int.from_bytes(int.from_bytes(self.buffer[index], 'big').to_bytes(2, 'little'), 'little') // 256
+			else:
+				return int.from_bytes(int.from_bytes(self.buffer[index], 'big').to_bytes(4, 'little'), 'big') // 4294967296
+		    
 	def setUint8(self, index, number):
 		if number > 255 or number < 0:
-			number = number % 255
-		self.buffer[index] = number
+			number = 0
+		self.buffer[index] = number.to_bytes(1, 'little')
 
-	def getUint16(self, start_index):
-		bytes_to_read = 2
-		binary = self.__get_binary(start_index, bytes_to_read)
-		return struct.unpack('<f', binary)[0] # and this
-
+	def getUint16(self, index):
+		try:
+			if int.from_bytes(self.buffer[index], 'big') <= 255:
+				return int.from_bytes(int.from_bytes(self.buffer[index], 'big').to_bytes(2, 'little'), 'big')
+			else:
+				return int.from_bytes(int.from_bytes(self.buffer[index], 'big').to_bytes(2, 'little'), 'big')
+		except OverflowError:
+			return int.from_bytes(int.from_bytes(self.buffer[index], 'big').to_bytes(4, 'little'), 'big') // 65536
+			 
+			
 	def setUint16(self, index, number):
 		if number > 65535 or number < 0:
-			number = number % 65535
-		self.buffer[index] = number
+			number = 0
+		self.buffer[index] = number.to_bytes(2, 'little')
 
-	def getUint32(self, start_index) -> int:
-		bytes_to_read = 4
-		binary = self.__get_binary(start_index, bytes_to_read)
-		return struct.unpack('<f', binary)[0] # and this
-
+	def getUint32(self, index):
+		return int.from_bytes(int.from_bytes(self.buffer[index], 'big').to_bytes(4, 'little'), 'big')
+	
 	def setUint32(self, index, number):
 		if number > 4294967295 or number < 0:
-			number = number % 4294967295
-		self.buffer[index] = number
-
+			number = 0
+		self.buffer[index] = number.to_bytes(4, 'little')		
+		
 def EmptyArray(length):
 	return [0] * length
 
@@ -200,7 +201,6 @@ class Session():
 		c.maxRemotePayload = msg.maxPacketSize
 		c.remoteWin = msg.peersWindow
 		c.maxIncomingPayload = channelMaxPacket
-		#pdb.set_trace() # check this one later
 		self.incoming.push(c)
 		await self.conn.write(encode(msgChannelOpenConfirm, channelOpenConfirmMsg(c.remoteId, c.localId, c.myWindow, c.maxIncomingPayload)))
 
@@ -375,7 +375,7 @@ class Channel():
 		packet = EmptyArray(9+len(buffer))
 		packet[0] = header.buffer
 		packet[9] = EmptyArray(len(buffer))
-		actual_packet = [*header.buffer, *EmptyArray(8), *packet[9], *EmptyArray(len(buffer))] # so the packet doesn't have arrays inside
+		actual_packet = [*header.buffer, *EmptyArray(8), *packet[9], *EmptyArray(len(buffer))] # examine this later
 		promise: 'asyncio.Future' = asyncio.Future()
 		promise.set_result(self.sendPacket(actual_packet))
 		return promise
@@ -428,9 +428,7 @@ def encode(type: int, obj) -> bytes:
 		data.setUint32(1, obj.peersID)
 		data.setUint32(5, obj.peersWindow)
 		data.setUint32(9, obj.maxPacketSize)
-		data_in_bytes_list = [integer.to_bytes(4, byteorder='little') for integer in data.buffer] 
-		data_in_bytes = reduce(lambda a, b: a + b, data_in_bytes_list)
-		return data_in_bytes
+		return reduce(lambda a, b: a + b, data.buffer)
 	elif type == msgChannelOpenConfirm:
 		data = DataView(EmptyArray(17))	
 		data.setUint8(0, type)
