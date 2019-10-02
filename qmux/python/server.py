@@ -5,14 +5,14 @@ from qmux import Session, TCPConn, IConn, DataView, EmptyArray
 def handle_echo(reader, writer):
     conn = TCPConn(reader, writer)
     sess = Session(conn, loop.create_task)
+    
     ch = yield from sess.open()
     ch.result().write(b"tester echo")
     # close? send might not have finished
 
-    ch = yield from sess.accept() # returns a future with None result, investigate this later
-    pdb.set_trace()
-    data = yield from ch.result().read(11) # no elements in queue.q, can't read
-    message = data.decode()
+    ch = yield from sess.accept()
+    data = yield from ch.result().read(11)    
+    message = data.decode() # can't decode NoneType
     addr = writer.get_extra_info('peername')
     print("Received %r from %r" % (message, addr))
     print("Client socket closed")

@@ -6,7 +6,7 @@ import asyncio, pdb, importlib
 class DataView():
 	def __init__(self, buffer):
 		self.buffer = [bytes(element) for element in buffer]
-     
+	
 	def getUint8(self, index):
 		try:
 			return int.from_bytes(int.from_bytes(self.buffer[index], 'big').to_bytes(1, 'little'), 'big')
@@ -104,7 +104,7 @@ class queue():
 	def push(self, obj):
 		if self.closed: raise Exception("closed queue")
 		if len(self.waiters) > 0:
-			self.waiters.pop(0).result()(obj) # check this one out too
+			self.waiters.pop(0).result()(obj)
 			return
 		self.q.append(obj)
 
@@ -145,9 +145,13 @@ class TCPConn(IConn):
 	async def read(self, length:int) -> 'asyncio.Future':
 		return await self.reader.read(length)
 
-	def write(self, buffer:bytes):
+	def write(self, buffer:bytes) -> 'asyncio.Future':
 		# TODO: think about draining
 		self.writer.write(buffer)
+		promise:'asyncio.Future' = asyncio.Future()
+		promise.set_result(len(buffer))
+		print(len(buffer))	
+		return promise
 
 	def close(self):
 		self.writer.close()
@@ -157,7 +161,6 @@ class Session():
 		self.conn = conn
 		self.channels:list = []
 		self.incoming = queue()
-		self.spawn = spawn # so we could convert coroutines to futures later on
 		spawn(self.loop())
 
 	async def readPacket(self) -> 'asyncio.Future':
@@ -172,7 +175,7 @@ class Session():
 		}
 		msg = await self.conn.read(1)
 		promise: 'asyncio.Future' = asyncio.Future()
-		if msg == None:
+		if not msg:
 			promise.set_result(None)
 			return promise
 		if msg[0] < msgChannelOpen or msg[0] > msgChannelClose:
@@ -207,9 +210,8 @@ class Session():
 	async def open(self) -> 'asyncio.Future':
 		ch = self.newChannel()
 		ch.maxIncomingPayload = channelMaxPacket
-		self.conn.write(encode(msgChannelOpen, channelOpenMsg(ch.myWindow, ch.maxIncomingPayload, ch.localId))) # write is not async so shouldn't be awaited
-		
-		if ch.ready.shift(): # removed await before ch.ready.shift (shift is not async so i guess it shouldn't be here)
+		self.conn.write(encode(msgChannelOpen, channelOpenMsg(ch.myWindow, ch.maxIncomingPayload, ch.localId)))
+		if ch.ready.shift():
 			promise: 'asyncio.Future' = asyncio.Future()
 			promise.set_result(ch)
 			return promise
@@ -233,15 +235,18 @@ class Session():
 				if packet == None:
 					self.close()
 					return
-				if packet.result()[0] == msgChannelOpen: # result is not set therefore can't be used
-					await self.handleChannelOpen(packet)
-					continue
+				try: # in case the result returns a None
+					if packet.result()[0] == msgChannelOpen:
+						await self.handleChannelOpen(packet)
+						continue
+				except:
+					pass
 				data = DataView(packet.result())
 				id = data.getUint32(1)
 				ch = self.getCh(id)
 				if ch == None:
 					raise Exception("invalid channel (%s) on op %s" % (id, packet[0]))
-				ch.handlePacket(data) # removed await because ch.handlePacket returns None
+				ch.handlePacket(data)
 		except:
 			raise Exception("session readloop")
 
@@ -295,7 +300,7 @@ class Channel():
 			raise Exception("EOF")
 		self.sentClose = packet[0] == msgChannelClose
 		promise: 'asyncio.Future' = asyncio.Future()
-		promise.set_result(self.session.conn.write(packet))
+		promise.set_result(self.session.conn.write(packet)) # returns None, check this out
 		return promise
 		
 	def sendMessage(self, type: int, msg) -> 'asyncio.Future':
@@ -335,6 +340,8 @@ class Channel():
 
 	async def handleData(self, packet: 'DataView'):
 		length = packet.getUint32(5)
+		print("YES!")
+		pdb.set_trace()
 		if length == 0:
 			return
 		if length > self.maxIncomingPayload:
@@ -352,20 +359,22 @@ class Channel():
 		return
     
 	def read(self, length) -> 'asyncio.Future':
-		promise: 'asyncio.Future' = asyncio.Future()
 		def tryRead():
-			if self.readbuf:
+			promise: 'asyncio.Future' = asyncio.Future()
+			if not self.readBuf:
 				promise.set_result(None)
 				return promise
-			if len(self.readbuf) >= length:
+			elif len(self.readBuf) >= length:
 				data = self.readBuf[0:length]
 				self.readBuf = self[length]
 				promise.set_result(data)
+				if len(self.readBuf) == 0 and self.gotEOF:
+					self.readBuf = None
 				return promise
 			self.readers.append(tryRead)
-		promise.set_result(tryRead())
-		return promise
-
+		print(self.readBuf)
+		return tryRead()
+		
 	def write(self, buffer: list) -> 'asyncio.Future':
 		if self.sentEOF: raise Exception("EOF")
 		header = DataView(EmptyArray(9))
@@ -375,7 +384,8 @@ class Channel():
 		packet = EmptyArray(9+len(buffer))
 		packet[0] = header.buffer
 		packet[9] = EmptyArray(len(buffer))
-		actual_packet = [*header.buffer, *EmptyArray(8), *packet[9], *EmptyArray(len(buffer))] # examine this later
+		actual_packet = [*header.buffer, *EmptyArray(8), *packet[9], *EmptyArray(len(buffer))]
+		actual_packet = reduce(lambda a, b: a + b, [bytes(element) for element in actual_packet]) # looks kinda hacky
 		promise: 'asyncio.Future' = asyncio.Future()
 		promise.set_result(self.sendPacket(actual_packet))
 		return promise
@@ -428,7 +438,7 @@ def encode(type: int, obj) -> bytes:
 		data.setUint32(1, obj.peersID)
 		data.setUint32(5, obj.peersWindow)
 		data.setUint32(9, obj.maxPacketSize)
-		return reduce(lambda a, b: a + b, data.buffer)
+		return reduce(lambda a, b: a + b, data.buffer) # looks kinda hacky
 	elif type == msgChannelOpenConfirm:
 		data = DataView(EmptyArray(17))	
 		data.setUint8(0, type)
