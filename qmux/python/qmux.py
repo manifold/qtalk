@@ -150,7 +150,6 @@ class TCPConn(IConn):
 		self.writer.write(buffer)
 		promise:'asyncio.Future' = asyncio.Future()
 		promise.set_result(len(buffer))
-		print(len(buffer))	
 		return promise
 
 	def close(self):
@@ -340,8 +339,6 @@ class Channel():
 
 	async def handleData(self, packet: 'DataView'):
 		length = packet.getUint32(5)
-		print("YES!")
-		pdb.set_trace()
 		if length == 0:
 			return
 		if length > self.maxIncomingPayload:
@@ -372,7 +369,6 @@ class Channel():
 					self.readBuf = None
 				return promise
 			self.readers.append(tryRead)
-		print(self.readBuf)
 		return tryRead()
 		
 	def write(self, buffer: list) -> 'asyncio.Future':
