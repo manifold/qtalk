@@ -1,17 +1,17 @@
 import asyncio, pdb
 from qmux import Session, TCPConn, IConn, DataView, EmptyArray
 
-@asyncio.coroutine
-def handle_echo(reader, writer):
+async def handle_echo(reader, writer):
     conn = TCPConn(reader, writer)
     sess = Session(conn, loop.create_task)
     
-    ch = yield from sess.open()
-    ch.result().write(b"tester echo")
+    ch = await sess.open()
+    ch.write(b"tester echo")
+    await ch.close()
     # close? send might not have finished
 
-    ch = yield from sess.accept()
-    data = yield from ch.result().read(11)    
+    ch = await sess.accept()
+    data = await ch.read(11)    
     message = data.decode() # can't decode NoneType
     addr = writer.get_extra_info('peername')
     print("Received %r from %r" % (message, addr))

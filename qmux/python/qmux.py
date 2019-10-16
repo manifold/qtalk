@@ -42,7 +42,10 @@ class DataView():
 	def setUint32(self, index, number):
 		if number > 4294967295 or number < 0:
 			number = 0
-		self.buffer[index] = number.to_bytes(4, 'little')		
+		self.buffer[index] = number.to_bytes(4, 'little')
+
+	def bytes(self):
+		return reduce(lambda a, b: a + b, self.buffer)	
 		
 def EmptyArray(length):
 	return [0] * length
@@ -104,7 +107,7 @@ class queue():
 	def push(self, obj):
 		if self.closed: raise Exception("closed queue")
 		if len(self.waiters) > 0:
-			self.waiters.pop(0).result()(obj)
+			self.waiters.pop(0).set_result(obj)
 			return
 		self.q.append(obj)
 
@@ -114,9 +117,7 @@ class queue():
 		if len(self.q) > 0:
 			promise.set_result(self.q.pop(0))
 			return promise
-		else:
-			promise.set_result(None)
-		self.waiters.append(promise.result())
+		self.waiters.append(promise)
 		return promise
 
 	def	close(self):
@@ -162,7 +163,8 @@ class Session():
 		self.incoming = queue()
 		spawn(self.loop())
 
-	async def readPacket(self) -> 'asyncio.Future':
+	@asyncio.coroutine
+	def readPacket(self) -> 'asyncio.Future':
 		sizes = {
 			msgChannelOpen: 12,
 			msgChannelOpenConfirm: 16,
@@ -172,20 +174,20 @@ class Session():
 			msgChannelEOF: 4,
 			msgChannelClose: 4,
 		}
-		msg = await self.conn.read(1)
+		msg = yield from self.conn.read(1)
 		promise: 'asyncio.Future' = asyncio.Future()
 		if not msg:
 			promise.set_result(None)
 			return promise
 		if msg[0] < msgChannelOpen or msg[0] > msgChannelClose:
 			raise Exception("bad packet: %s" % msg[0])
-		rest = await self.conn.read(sizes.get(msg[0]))
+		rest = yield from self.conn.read(sizes.get(msg[0]))
 		if rest == None:
 			raise Exception("unexpected EOF")
 		if msg[0] == msgChannelData:
 			view = DataView(EmptyArray(rest))
 			length = view.getUint32(4)
-			data = await self.conn.read(length)
+			data = yield from self.conn.read(length)
 			if data == None:
 				raise Exception("unexpected EOF")
 			promise.set_result([*msg, *rest, *data])
@@ -206,14 +208,12 @@ class Session():
 		self.incoming.push(c)
 		await self.conn.write(encode(msgChannelOpenConfirm, channelOpenConfirmMsg(c.remoteId, c.localId, c.myWindow, c.maxIncomingPayload)))
 
-	async def open(self) -> 'asyncio.Future':
+	async def open(self):
 		ch = self.newChannel()
 		ch.maxIncomingPayload = channelMaxPacket
-		self.conn.write(encode(msgChannelOpen, channelOpenMsg(ch.myWindow, ch.maxIncomingPayload, ch.localId)))
+		await self.conn.write(encode(msgChannelOpen, channelOpenMsg(ch.myWindow, ch.maxIncomingPayload, ch.localId)))
 		if ch.ready.shift():
-			promise: 'asyncio.Future' = asyncio.Future()
-			promise.set_result(ch)
-			return promise
+			return ch
 		raise Exception("failed to open")
 
 	def newChannel(self) -> 'Channel':
@@ -235,12 +235,12 @@ class Session():
 					self.close()
 					return
 				try: # in case the result returns a None
-					if packet.result()[0] == msgChannelOpen:
+					if packet[0] == msgChannelOpen:
 						await self.handleChannelOpen(packet)
 						continue
 				except:
 					pass
-				data = DataView(packet.result())
+				data = DataView(packet)
 				id = data.getUint32(1)
 				ch = self.getCh(id)
 				if ch == None:
@@ -266,16 +266,14 @@ class Session():
 	def rmCh(self, id: int):
 		self.channels[id] = None
 
-	def accept(self) -> 'asyncio.Future':
-		promise: 'asyncio.Future' = asyncio.Future()
-		promise.set_result(self.incoming.shift())
-		return promise
+	async def accept(self):
+		return await self.incoming.shift()
 
-	async def close(self):
-		for id in self.channels.keys():
+	def close(self):
+		for id in range(len(self.channels)-1):
 			if self.channels[id] == None:
 				self.channels[id].shutdown()
-		raise Exception("session closed")
+		self.conn.close()
 
 class Channel():
 	localId = 0
@@ -299,14 +297,14 @@ class Channel():
 			raise Exception("EOF")
 		self.sentClose = packet[0] == msgChannelClose
 		promise: 'asyncio.Future' = asyncio.Future()
-		promise.set_result(self.session.conn.write(packet)) # returns None, check this out
+		promise.set_result(self.session.conn.write(bytes(packet))) # returns None, check this out
 		return promise
 		
 	def sendMessage(self, type: int, msg) -> 'asyncio.Future':
 		data = DataView(encode(type, msg))
 		data.setUint32(1, self.remoteId)
 		promise:'asyncio.Future' = asyncio.Future()
-		promise.set_result(self.sendPacket(EmptyArray(data)))
+		promise.set_result(self.sendPacket(EmptyArray(len(data.buffer))))
 		return promise
 
 	def handlePacket(self, packet: 'DataView'):
@@ -391,12 +389,11 @@ class Channel():
 
 	async def close(self):
 		if not self.sentClose:
-			await self.sendMessage(msgChannelClose(self.remoteId))
+			await self.sendMessage(msgChannelClose, channelCloseMsg(self.remoteId))
 			self.sentClose = True
 			while await self.ready.shift() != None:
 				return
 		self.shutdown()
-		raise Exception("channel closed")
 
 	def shutdown(self):
 		self.readBuf = None
@@ -413,7 +410,7 @@ def encode(type: int, obj) -> bytes:
 		data = DataView(EmptyArray(5))
 		data.setUint8(0, type)
 		data.setUint32(1, obj.peersID)
-		return bytes(data.buffer)
+		return data.bytes()
 	elif type == msgChannelData:
 		data = DataView(EmptyArray(9))
 		data.setUint8(0, type)
