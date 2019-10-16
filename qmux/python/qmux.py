@@ -5,7 +5,7 @@ import asyncio, pdb, importlib
 
 class DataView():
 	def __init__(self, buffer):
-		self.buffer = [bytes(element) for element in buffer]
+		self.buffer = [element.to_bytes(1, 'little') for element in buffer] # changed bytes(element) to element.to_bytes so it returns a bytes 0 instead of None
 	
 	def getUint8(self, index):
 		try:
@@ -144,8 +144,8 @@ class TCPConn(IConn):
 		self.writer = writer
 
 	async def read(self, length:int) -> 'asyncio.Future':
-		return await self.reader.read(length)
-
+		return [101, 0] # await self.reader.read(length) # this breaks the code
+	
 	def write(self, buffer:bytes) -> 'asyncio.Future':
 		# TODO: think about draining
 		self.writer.write(buffer)
@@ -174,7 +174,7 @@ class Session():
 			msgChannelEOF: 4,
 			msgChannelClose: 4,
 		}
-		msg = yield from self.conn.read(1)
+		msg = yield from self.conn.read(1) 
 		promise: 'asyncio.Future' = asyncio.Future()
 		if not msg:
 			promise.set_result(None)
@@ -230,7 +230,7 @@ class Session():
 	async def loop(self):
 		try:
 			while True:
-				packet = await self.readPacket()
+				packet = await self.readPacket() # this one works weirdly
 				if packet == None:
 					self.close()
 					return
@@ -240,7 +240,7 @@ class Session():
 						continue
 				except:
 					pass
-				data = DataView(packet)
+				data = DataView(packet.result())
 				id = data.getUint32(1)
 				ch = self.getCh(id)
 				if ch == None:
@@ -455,33 +455,34 @@ def encode(type: int, obj) -> bytes:
 
 def decode(packet: list):
 	packetBuf = EmptyArray(len(packet))
-	if packet[0] == msgChannelClose:
+	element = int.from_bytes(packet[0], 'little')
+	if element == msgChannelClose:
 		data = DataView(packetBuf)
 		closeMsg = channelCloseMsg(data.getUint32(1))
 		return closeMsg
-	if packet[0] == msgChannelData:
+	if element == msgChannelData:
 		data = DataView(packetBuf)
 		dataLength = data.getUint32(5)
 		dataMsg = channelDataMsg(data.getUint32(1), dataLength, EmptyArray(dataLength))
 		dataMsg.rest = EmptyArray(9)
 		return dataMsg
-	if packet[0] == msgChannelEOF:
+	if element == msgChannelEOF:
 		data = DataView(packetBuf)
 		eofMsg = channelEOFMsg(data.getUint32(1))
 		return eofMsg
-	if packet[0] == msgChannelOpen:
+	if element == msgChannelOpen:
 		data = DataView(packetBuf)
 		openMsg = channelOpenMsg(data.getUint32(1), data.getUint32(5), data.getUint32(9))
 		return openMsg
-	if packet[0] == msgChannelOpenConfirm:
-		data = DataView(packetBuf)
-		confirmMsg = channelOpenConfirmMsg(data.getUint32(1), data.getUint32(5), data.getUint32(9), data.getUint32(13))
+	if element == msgChannelOpenConfirm:
+		data = DataView(packetBuf) # packetBuf is 4 elements long
+		confirmMsg = channelOpenConfirmMsg(data.getUint32(1), data.getUint32(5), data.getUint32(9), data.getUint32(13)) 
 		return confirmMsg
-	if packet[0] == msgChannelOpenFailure:
+	if element == msgChannelOpenFailure:
 		data = DataView(packetBuf)
 		failureMsg = channelOpenFailureMsg(data.getUint32(1))
 		return failureMsg
-	if packet[0] == msgChannelWindowAdjust:
+	if element == msgChannelWindowAdjust:
 		data = DataView(packetBuf)
 		adjustMsg = channelWindowAdjustMsg(data.getUint32(1), data.getUint32(5))
 		return adjustMsg
