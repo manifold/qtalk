@@ -1,7 +1,7 @@
 from typing import Callable, Dict, List
 from abc import ABC, abstractmethod
 from functools import reduce
-import asyncio, pdb, importlib
+import asyncio, pdb
 
 class DataView():
 	def __init__(self, buffer):
@@ -66,43 +66,43 @@ channelMaxPacket = 1 << 15
 channelWindowSize = 64 * channelMaxPacket
 
 class channelOpenMsg():
-	def __init__(self, peersWindow:int, maxPacketSize:int, peersID:int):
+	def __init__(self, peersWindow: int, maxPacketSize: int, peersID: int):
 		self.peersID = peersID
 		self.peersWindow = peersWindow
 		self.maxPacketSize = maxPacketSize
 
 class channelOpenConfirmMsg():
-	def __init__(self, peersID:int, myID:int, myWindow:int, maxPacketSize:int):
+	def __init__(self, peersID: int, myID: int, myWindow: int, maxPacketSize: int):
 		self.peersID = peersID
 		self.myID = myID
 		self.myWindow = myWindow
 		self.maxPacketSize = maxPacketSize
 
 class channelOpenFailureMsg():
-	def __init__(self, peersID:int):
+	def __init__(self, peersID: int):
 		self.peersID = peersID
 
 class channelWindowAdjustMsg():
-	def __init__(self, peersID:int, additionalBytes:int):
+	def __init__(self, peersID: int, additionalBytes: int):
 		self.peersID = peersID
 		self.additionalBytes = additionalBytes
 
 class channelDataMsg():
-	def __init__(self, peersID:int, length:int, rest:list):
+	def __init__(self, peersID: int, length: int, rest: list):
 		self.peersID = peersID
 		self.length = length
 		self.rest = rest
 
 class channelEOFMsg():
-	def __init__(self, peersID:int):
+	def __init__(self, peersID: int):
 		self.peersID = peersID
 
 class channelCloseMsg():
-	def __init__(self, peersID:int):
+	def __init__(self, peersID: int):
 		self.peersID = peersID
 
 class queue():
-	def __init__ (self, q:list=[], waiters:List[Callable]=[], closed:bool=None):
+	def __init__ (self, q: list=[], waiters: List[Callable]=[], closed: bool=None):
 		self.q = q
 		self.waiters = waiters
 		self.closed = closed
@@ -115,8 +115,8 @@ class queue():
 		self.q.append(obj)
 
 	def shift(self) -> 'asyncio.Future':
-		if self.closed: return
-		promise:'asyncio.Future' = asyncio.Future()
+		promise: 'asyncio.Future' = asyncio.Future()
+		if self.closed: return promise
 		if len(self.q) > 0:
 			promise.set_result(self.q.pop(0))
 			return promise
@@ -146,7 +146,7 @@ class TCPConn(IConn):
 		self.reader = reader
 		self.writer = writer
 
-	async def read(self, length:int) -> 'asyncio.Future':
+	async def read(self, length:int) -> 'asyncio.Future': # should this return a future?
 		try:
 			return await self.reader.read(length) # this breaks the code
 		except ConnectionResetError:
@@ -172,13 +172,13 @@ class Session():
 	@asyncio.coroutine
 	def readPacket(self) -> 'asyncio.Future':
 		sizes = {
-			msgChannelOpen: 12,
-			msgChannelOpenConfirm: 16,
-			msgChannelOpenFailure: 4,
-			msgChannelWindowAdjust: 8,
-			msgChannelData: 8,
-			msgChannelEOF: 4,
-			msgChannelClose: 4,
+		msgChannelOpen: 12,
+		msgChannelOpenConfirm: 16,
+		msgChannelOpenFailure: 4,
+		msgChannelWindowAdjust: 8,
+		msgChannelData: 8,
+		msgChannelEOF: 4,
+		msgChannelClose: 4,
 		}
 		msg = yield from self.conn.read(1) 
 		promise: 'asyncio.Future' = asyncio.Future()
@@ -187,7 +187,7 @@ class Session():
 			return promise
 		if msg[0] < msgChannelOpen or msg[0] > msgChannelClose:
 			raise Exception("bad packet: %s" % msg[0])
-		rest = yield from self.conn.read(sizes.get(msg[0])) # this returns random results
+		rest = yield from self.conn.read(sizes.get(msg[0]))
 		if rest == None:
 			raise Exception("unexpected EOF")
 		if msg[0] == msgChannelData:
@@ -289,11 +289,12 @@ class Channel():
 	session = Session
 	ready = queue
 	sentEOF = None
+	gotEOF = None
 	sentClose = None
 	remoteWin = 0
 	myWindow = 0 
-	readBuf = []
-	readers:List[Callable]
+	readBuf: list = []
+	readers: List[Callable]
 
 	def ident(self) -> int:
 		return self.localId
@@ -309,7 +310,7 @@ class Channel():
 	def sendMessage(self, type: int, msg) -> 'asyncio.Future':
 		data = DataView(encode(type, msg))
 		data.setUint32(1, self.remoteId)
-		promise:'asyncio.Future' = asyncio.Future()
+		promise: 'asyncio.Future' = asyncio.Future()
 		promise.set_result(self.sendPacket(EmptyArray(len(data.buffer))))
 		return promise
 
@@ -324,21 +325,21 @@ class Channel():
 			# TODO
 			return
 		if packet.getUint8(0) == msgChannelOpenFailure:
-			fmsg:'channelOpenFailureMsg' = decode(packet.buffer)
-			self.session.rmCh(fmsg.peersID)
-			self.ready.push(False)
+			fmsg: 'channelOpenFailureMsg' = decode(packet.buffer)
+			self.session.rmCh(fmsg.peersID) # fix this one later
+			self.ready.push(False) # fix this one later
 			return
 		if packet.getUint8(0) == msgChannelOpenConfirm:
-			cmsg:'channelOpenConfirmMsg' = decode(packet.buffer)
+			cmsg: 'channelOpenConfirmMsg' = decode(packet.buffer)
 			if cmsg.maxPacketSize < minPacketLength or cmsg.maxPacketSize > 1<<30:
 				raise Exception("invalid max packet size")
 			self.remoteId = cmsg.myID
 			self.maxRemotePayload = cmsg.maxPacketSize
 			self.remoteWin += cmsg.myWindow
-			self.ready.push(True)
+			self.ready.push(True) # fix this one later
 			return
 		if packet.getUint8(0) == msgChannelWindowAdjust:
-			amsg:'channelWindowAdjustMsg' = decode(packet.buffer)
+			amsg: 'channelWindowAdjustMsg' = decode(packet.buffer)
 			self.remoteWin += amsg.additionalBytes
 
 	async def handleData(self, packet: 'DataView'):
@@ -357,7 +358,7 @@ class Channel():
 
 	async def adjustWindow(self, n: int):
 		# TODO
-		return
+		return n
     
 	def read(self, length) -> 'asyncio.Future':
 		def tryRead():
@@ -367,9 +368,9 @@ class Channel():
 				return promise
 			elif len(self.readBuf) >= length:
 				data = self.readBuf[0:length]
-				self.readBuf = self[length]
+				self.readBuf = self.readBuf[:length]
 				promise.set_result(data)
-				if len(self.readBuf) == 0 and self.gotEOF:
+				if not self.readBuf and self.gotEOF: # changed "len(self.readBuf) == 0" to "not self.readBuf"
 					self.readBuf = None
 				return promise
 			self.readers.append(tryRead)
@@ -397,7 +398,7 @@ class Channel():
 		if not self.sentClose:
 			await self.sendMessage(msgChannelClose, channelCloseMsg(self.remoteId))
 			self.sentClose = True
-			while await self.ready.shift() != None:
+			while await self.ready.shift(): # removed != None
 				return
 		self.shutdown()
 
@@ -422,7 +423,7 @@ def encode(type: int, obj) -> bytes:
 		data.setUint8(0, type)
 		data.setUint32(1, obj.peersID)
 		data.setUint32(5, obj.length)
-		buf:list = EmptyArray(9+obj.length)
+		buf: list = EmptyArray(9+obj.length)
 		buf[0] = data.buffer
 		buf[9] = obj.rest
 		return bytes(buf)
@@ -439,7 +440,7 @@ def encode(type: int, obj) -> bytes:
 		data.setUint32(9, obj.maxPacketSize)
 		return data.bytes()
 	elif type == msgChannelOpenConfirm:
-		data = DataView(EmptyArray(17))	
+		data = DataView(EmptyArray(17))
 		data.setUint8(0, type)
 		data.setUint32(1, obj.peersID)
 		data.setUint32(5, obj.myID)
@@ -493,4 +494,4 @@ def decode(packet: list): # removed "packetBuf = EmptyArray(len(packet))" becaus
 		adjustMsg = channelWindowAdjustMsg(data.getUint32(1), data.getUint32(5))
 		return adjustMsg
 	raise Exception("unknown type")
-		
+
