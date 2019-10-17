@@ -5,7 +5,7 @@ import asyncio, pdb, importlib
 
 class DataView():
 	def __init__(self, buffer):
-		self.buffer = [element.to_bytes(1, 'little') for element in buffer] # changed bytes(element) to element.to_bytes so it returns a bytes 0 instead of None
+		self.buffer = [element.to_bytes(1, 'little') for element in buffer] # changed bytes(element) to element.to_bytes so it returns b'\x00' instead of b'' (None)
 	
 	def getUint8(self, index):
 		try:
@@ -46,6 +46,9 @@ class DataView():
 
 	def bytes(self):
 		return reduce(lambda a, b: a + b, self.buffer)	
+	
+#	def from_bytes(self):
+#		return [int.from_bytes(element, 'little') for element in self.buffer]
 		
 def EmptyArray(length):
 	return [0] * length
@@ -144,8 +147,11 @@ class TCPConn(IConn):
 		self.writer = writer
 
 	async def read(self, length:int) -> 'asyncio.Future':
-		return [101, 0] # await self.reader.read(length) # this breaks the code
-	
+		try:
+			return await self.reader.read(length) # this breaks the code
+		except ConnectionResetError:
+			return []
+
 	def write(self, buffer:bytes) -> 'asyncio.Future':
 		# TODO: think about draining
 		self.writer.write(buffer)
@@ -181,7 +187,7 @@ class Session():
 			return promise
 		if msg[0] < msgChannelOpen or msg[0] > msgChannelClose:
 			raise Exception("bad packet: %s" % msg[0])
-		rest = yield from self.conn.read(sizes.get(msg[0]))
+		rest = yield from self.conn.read(sizes.get(msg[0])) # this returns random results
 		if rest == None:
 			raise Exception("unexpected EOF")
 		if msg[0] == msgChannelData:
@@ -230,13 +236,13 @@ class Session():
 	async def loop(self):
 		try:
 			while True:
-				packet = await self.readPacket() # this one works weirdly
-				if packet == None:
+				packet = await self.readPacket()
+				if packet.result() == None:
 					self.close()
 					return
 				try: # in case the result returns a None
-					if packet[0] == msgChannelOpen:
-						await self.handleChannelOpen(packet)
+					if packet.result()[0] == msgChannelOpen:
+						await self.handleChannelOpen(packet.result())
 						continue
 				except:
 					pass
@@ -379,7 +385,7 @@ class Channel():
 		packet[0] = header.buffer
 		packet[9] = EmptyArray(len(buffer))
 		actual_packet = [*header.buffer, *EmptyArray(8), *packet[9], *EmptyArray(len(buffer))]
-		actual_packet = reduce(lambda a, b: a + b, [bytes(element) for element in actual_packet]) # looks kinda hacky
+		actual_packet = reduce(lambda a, b: a + b, [bytes(element) for element in actual_packet]) # check whether this should return a list or a bytes-like string
 		promise: 'asyncio.Future' = asyncio.Future()
 		promise.set_result(self.sendPacket(actual_packet))
 		return promise
@@ -424,14 +430,14 @@ def encode(type: int, obj) -> bytes:
 		data = DataView(EmptyArray(5))
 		data.setUint8(0, type)
 		data.setUint32(1, obj.peersID)
-		return bytes(data.buffer)
+		return data.bytes()
 	elif type == msgChannelOpen:
 		data = DataView(EmptyArray(13))
 		data.setUint8(0, type)
 		data.setUint32(1, obj.peersID)
 		data.setUint32(5, obj.peersWindow)
 		data.setUint32(9, obj.maxPacketSize)
-		return reduce(lambda a, b: a + b, data.buffer) # looks kinda hacky
+		return data.bytes()
 	elif type == msgChannelOpenConfirm:
 		data = DataView(EmptyArray(17))	
 		data.setUint8(0, type)
@@ -439,51 +445,51 @@ def encode(type: int, obj) -> bytes:
 		data.setUint32(5, obj.myID)
 		data.setUint32(9, obj.myWindow)
 		data.setUint32(13, obj.maxPacketSize)
-		return bytes(data.buffer)
+		return data.bytes()
 	elif type == msgChannelOpenFailure:
 		data = DataView(EmptyArray(5))
 		data.setUint8(0, type)
 		data.setUint32(1, obj.peersID)
-		return bytes(data.buffer)
+		return data.bytes()
 	elif type == msgChannelWindowAdjust:
 		data = DataView(EmptyArray(9))
 		data.setUint8(0, type)
 		data.setUint32(1, obj.peersID)
 		data.setUint32(5, obj.additionalBytes)
-		return bytes(data.buffer)
+		return data.bytes()
 	raise Exception("unknown type")
 
-def decode(packet: list):
-	packetBuf = EmptyArray(len(packet))
+def decode(packet: list): # removed "packetBuf = EmptyArray(len(packet))" because empty list is not needed
 	element = int.from_bytes(packet[0], 'little')
+	data = DataView([]) # since packet is a bytes list, we can't use it as the argument in DataView. (can't convert bytes to_bytes again)
 	if element == msgChannelClose:
-		data = DataView(packetBuf)
+		data.buffer = packet
 		closeMsg = channelCloseMsg(data.getUint32(1))
 		return closeMsg
 	if element == msgChannelData:
-		data = DataView(packetBuf)
+		data.buffer = packet
 		dataLength = data.getUint32(5)
 		dataMsg = channelDataMsg(data.getUint32(1), dataLength, EmptyArray(dataLength))
 		dataMsg.rest = EmptyArray(9)
 		return dataMsg
 	if element == msgChannelEOF:
-		data = DataView(packetBuf)
+		data.buffer = packet
 		eofMsg = channelEOFMsg(data.getUint32(1))
 		return eofMsg
 	if element == msgChannelOpen:
-		data = DataView(packetBuf)
+		data.buffer = packet
 		openMsg = channelOpenMsg(data.getUint32(1), data.getUint32(5), data.getUint32(9))
 		return openMsg
 	if element == msgChannelOpenConfirm:
-		data = DataView(packetBuf) # packetBuf is 4 elements long
-		confirmMsg = channelOpenConfirmMsg(data.getUint32(1), data.getUint32(5), data.getUint32(9), data.getUint32(13)) 
+		data.buffer = packet
+		confirmMsg = channelOpenConfirmMsg(data.getUint32(1), data.getUint32(5), data.getUint32(9), data.getUint32(13))
 		return confirmMsg
 	if element == msgChannelOpenFailure:
-		data = DataView(packetBuf)
+		data.buffer = packet
 		failureMsg = channelOpenFailureMsg(data.getUint32(1))
 		return failureMsg
 	if element == msgChannelWindowAdjust:
-		data = DataView(packetBuf)
+		data.buffer = packet
 		adjustMsg = channelWindowAdjustMsg(data.getUint32(1), data.getUint32(5))
 		return adjustMsg
 	raise Exception("unknown type")
