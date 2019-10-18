@@ -1,4 +1,4 @@
-from typing import Callable, Dict, List
+from typing import Callable, List
 from abc import ABC, abstractmethod
 from functools import reduce
 import asyncio
@@ -188,7 +188,7 @@ class Session():
             return promise
         if msg[0] < MSG_CHANNEL_OPEN or msg[0] > MSG_CHANNEL_CLOSE:
             raise Exception("bad packet: %s" % msg[0])
-        rest = yield from self.conn.read(sizes.get(msg[0]))
+        rest = yield from self.conn.read(sizes.get(msg[0])) # first element is 0
         if not rest:
             raise Exception("unexpected EOF")
         if msg[0] == MSG_CHANNEL_DATA:
@@ -244,22 +244,21 @@ class Session():
                 try:
                     if packet.result()[0] == MSG_CHANNEL_OPEN:
                         await self.handle_channel_open(packet.result())
-                        continue
                 except TypeError:
                     pass
                 data = DataView(packet.result())
-                id = data.get_uint_32(1)
-                ch = self.getCh(id)
+                data_id = data.get_uint_32(1)
+                ch = self.getCh(data_id)
                 if not ch:
-                    raise Exception("invalid channel (%s) on op %s" % (id, packet[0]))
+                    raise Exception("invalid channel (%s) on op %s" % (data_id, packet[0]))
                 ch.handle_packet(data)
         except:
             raise Exception("session readloop")
 
-    def getCh(self, id: int) -> 'Channel':
-        ch = self.channels[id]
-        if ch.local_id != id:
-            print("bad ids: %s, %s, %s" % (id, ch.local_id, ch.remote_id))
+    def getCh(self, channel_id: int) -> 'Channel':
+        ch = self.channels[channel_id]
+        if ch.local_id != channel_id:
+            print("bad ids: %s, %s, %s" % (channel_id, ch.local_id, ch.remote_id))
         return ch
 
     def addCh(self, ch: 'Channel') -> int:
@@ -270,16 +269,16 @@ class Session():
         self.channels.append(ch)
         return len(self.channels)-1
 
-    def rm_ch(self, id: int):
-        self.channels[id] = None
+    def rm_ch(self, channel_id: int):
+        self.channels[channel_id] = None
 
     async def accept(self):
         return await self.incoming.shift()
 
     def close(self):
-        for id in range(len(self.channels)-1):
-            if not self.channels[id]:
-                self.channels[id].shutdown()
+        for channel_id in range(len(self.channels)-1):
+            if not self.channels[channel_id]:
+                self.channels[channel_id].shutdown()
         self.conn.close()
 
 class Channel():
@@ -287,8 +286,8 @@ class Channel():
     remote_id = 0
     max_incoming_pay_load = 0
     max_remote_pay_load = 0
-    session = Session
-    ready = Queue
+    session = None
+    ready = None
     sent_EOF = None
     got_EOF = None
     sent_close = None
@@ -308,8 +307,8 @@ class Channel():
         promise.set_result(self.session.conn.write(bytes(packet)))
         return promise
 
-    def send_message(self, type: int, msg) -> 'asyncio.Future':
-        data = DataView(encode(type, msg))
+    def send_message(self, number: int, msg) -> 'asyncio.Future':
+        data = DataView(encode(number, msg))
         data.set_uint_32(1, self.remote_id)
         promise: 'asyncio.Future' = asyncio.Future()
         promise.set_result(self.send_packet(empty_array(len(data.buffer))))
@@ -382,12 +381,12 @@ class Channel():
             raise Exception("EOF")
         header = DataView(empty_array(9))
         header.set_uint_8(0, MSG_CHANNEL_DATA)
-        header.set_uint_32(1, self.remote_id)
+        header.set_uint_32(1, self.remote_id) # remote ID can't be 0
         header.set_uint_32(5, len(buffer))
-        packet = empty_array(9+len(buffer))
+        packet = empty_array(9 + len(buffer))
         packet[0] = header.buffer
         packet[9] = empty_array(len(buffer))
-        actual_packet = [*header.buffer, *empty_array(8), *packet[9], *empty_array(len(buffer))]
+        actual_packet = [*header.buffer, *empty_array(8), *packet[9], *[element.to_bytes(1, 'little') for element in empty_array(len(buffer))]]
         actual_packet = reduce(lambda a, b: a + b, [bytes(element) for element in actual_packet]) # check whether this should return a list or a bytes-like string
         promise: 'asyncio.Future' = asyncio.Future()
         promise.set_result(self.send_packet(actual_packet))
@@ -415,49 +414,49 @@ class Channel():
         self.sent_EOF = True
         await self.send_message(MSG_CHANNEL_EOF, ChannelEOFMsg(self.remote_id))
 
-def encode(type: int, obj) -> bytes:
-    if type == MSG_CHANNEL_CLOSE:
+def encode(number: int, obj) -> bytes: # changed type to number
+    if number == MSG_CHANNEL_CLOSE:
         data = DataView(empty_array(5))
-        data.set_uint_8(0, type)
+        data.set_uint_8(0, number)
         data.set_uint_32(1, obj.peers_id)
         return data.bytes()
-    if type == MSG_CHANNEL_DATA:
+    if number == MSG_CHANNEL_DATA:
         data = DataView(empty_array(9))
-        data.set_uint_8(0, type)
+        data.set_uint_8(0, number)
         data.set_uint_32(1, obj.peers_id)
         data.set_uint_32(5, obj.length)
         buf: list = empty_array(9+obj.length)
         buf[0] = data.buffer
         buf[9] = obj.rest
         return bytes(buf)
-    if type == MSG_CHANNEL_EOF:
+    if number == MSG_CHANNEL_EOF:
         data = DataView(empty_array(5))
-        data.set_uint_8(0, type)
+        data.set_uint_8(0, number)
         data.set_uint_32(1, obj.peers_id)
         return data.bytes()
-    if type == MSG_CHANNEL_OPEN:
+    if number == MSG_CHANNEL_OPEN:
         data = DataView(empty_array(13))
-        data.set_uint_8(0, type)
+        data.set_uint_8(0, number)
         data.set_uint_32(1, obj.peers_id)
         data.set_uint_32(5, obj.peers_window)
         data.set_uint_32(9, obj.max_packet_size)
         return data.bytes()
-    if type == MSG_CHANNEL_OPEN_CONFIRM:
+    if number == MSG_CHANNEL_OPEN_CONFIRM:
         data = DataView(empty_array(17))
-        data.set_uint_8(0, type)
+        data.set_uint_8(0, number)
         data.set_uint_32(1, obj.peers_id)
         data.set_uint_32(5, obj.my_id)
         data.set_uint_32(9, obj.my_window)
         data.set_uint_32(13, obj.max_packet_size)
         return data.bytes()
-    if type == MSG_CHANNEL_OPEN_FAILURE:
+    if number == MSG_CHANNEL_OPEN_FAILURE:
         data = DataView(empty_array(5))
-        data.set_uint_8(0, type)
+        data.set_uint_8(0, number)
         data.set_uint_32(1, obj.peers_id)
         return data.bytes()
-    if type == MSG_CHANNEL_WINDOW_ADJUST:
+    if number == MSG_CHANNEL_WINDOW_ADJUST:
         data = DataView(empty_array(9))
-        data.set_uint_8(0, type)
+        data.set_uint_8(0, number)
         data.set_uint_32(1, obj.peers_id)
         data.set_uint_32(5, obj.additional_bytes)
         return data.bytes()

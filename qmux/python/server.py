@@ -11,8 +11,9 @@ async def handle_echo(reader, writer):
     # close? send might not have finished
 
     ch = await sess.accept()
-    data = await ch.read(11)    
-    message = data.decode() # can't decode NoneType
+    data = await ch.read(11)
+    message = data.decode()
+    print(message)
     addr = writer.get_extra_info('peername')
     print("Received %r from %r" % (message, addr))
     print("Client socket closed")
