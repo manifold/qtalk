@@ -1,5 +1,5 @@
 import asyncio, pdb
-from qmux import Session, TCPConn, IConn, DataView, EmptyArray
+from qmux import Session, TCPConn, IConn, DataView, empty_array
 
 async def handle_echo(reader, writer):
     conn = TCPConn(reader, writer)
