@@ -100,8 +100,8 @@ class ChannelCloseMsg():
         self.peers_id = peers_id
 
 class Queue():
-    def __init__(self, q: list = [], waiters: List[Callable] = [], closed: bool = None):
-        self.q = q
+    def __init__(self, queue: list = [], waiters: List[Callable] = [], closed: bool = None):
+        self.queue = queue
         self.waiters = waiters
         self.closed = closed
 
@@ -111,14 +111,14 @@ class Queue():
         if self.waiters:
             self.waiters.pop(0).set_result(obj)
             return
-        self.q.append(obj)
+        self.queue.append(obj)
 
     def shift(self) -> 'asyncio.Future':
         promise: 'asyncio.Future' = asyncio.Future()
         if self.closed:
             return promise
-        if self.q:
-            promise.set_result(self.q.pop(0))
+        if self.queue:
+            promise.set_result(self.queue.pop(0))
             return promise
         self.waiters.append(promise)
         return promise
@@ -188,7 +188,7 @@ class Session():
             return promise
         if msg[0] < MSG_CHANNEL_OPEN or msg[0] > MSG_CHANNEL_CLOSE:
             raise Exception("bad packet: %s" % msg[0])
-        rest = yield from self.conn.read(sizes.get(msg[0])) # first element is 0
+        rest = yield from self.conn.read(sizes.get(msg[0]))
         if not rest:
             raise Exception("unexpected EOF")
         if msg[0] == MSG_CHANNEL_DATA:
@@ -207,32 +207,32 @@ class Session():
         if msg.max_packet_size < MIN_PACKET_LENGTH or msg.max_packet_size > 1<<30:
             await self.conn.write(encode(MSG_CHANNEL_OPEN_FAILURE, ChannelOpenFailureMsg(msg.peers_id)))
             return
-        c = self.new_channel()
-        c.remote_id = msg.peers_id
-        c.max_remote_pay_load = msg.max_packet_size
-        c.remote_win = msg.peers_window
-        c.max_incoming_pay_load = CHANNEL_MAX_PACKET
-        self.incoming.push(c)
-        await self.conn.write(encode(MSG_CHANNEL_OPEN_CONFIRM, ChannelOpenConfirmMsg(c.remote_id, c.local_id, c.my_window, c.max_incoming_pay_load)))
+        channel = self.new_channel()
+        channel.remote_id = msg.peers_id
+        channel.max_remote_pay_load = msg.max_packet_size
+        channel.remote_win = msg.peers_window
+        channel.max_incoming_pay_load = CHANNEL_MAX_PACKET
+        self.incoming.push(channel)
+        await self.conn.write(encode(MSG_CHANNEL_OPEN_CONFIRM, ChannelOpenConfirmMsg(channel.remote_id, channel.local_id, channel.my_window, channel.max_incoming_pay_load)))
 
     async def open(self):
-        ch = self.new_channel()
-        ch.max_incoming_pay_load = CHANNEL_MAX_PACKET
-        await self.conn.write(encode(MSG_CHANNEL_OPEN, ChannelOpenMsg(ch.my_window, ch.max_incoming_pay_load, ch.local_id)))
-        if ch.ready.shift():
-            return ch
+        channel = self.new_channel()
+        channel.max_incoming_pay_load = CHANNEL_MAX_PACKET
+        await self.conn.write(encode(MSG_CHANNEL_OPEN, ChannelOpenMsg(channel.my_window, channel.max_incoming_pay_load, channel.local_id)))
+        if channel.ready.shift():
+            return channel
         raise Exception("failed to open")
 
     def new_channel(self) -> 'Channel':
-        ch = Channel()
-        ch.remote_win = 0
-        ch.my_window = CHANNEL_WINDOW_SIZE
-        ch.ready = Queue()
-        ch.read_buf = []
-        ch.readers = []
-        ch.session = self
-        ch.local_id = self.addCh(ch)
-        return ch
+        channel = Channel()
+        channel.remote_win = 0
+        channel.my_window = CHANNEL_WINDOW_SIZE
+        channel.ready = Queue()
+        channel.read_buf = []
+        channel.readers = []
+        channel.session = self
+        channel.local_id = self.add_ch(channel)
+        return channel
 
     async def loop(self):
         try:
@@ -248,25 +248,25 @@ class Session():
                     pass
                 data = DataView(packet.result())
                 data_id = data.get_uint_32(1)
-                ch = self.getCh(data_id)
-                if not ch:
+                channel = self.get_ch(data_id)
+                if not channel:
                     raise Exception("invalid channel (%s) on op %s" % (data_id, packet[0]))
-                ch.handle_packet(data)
+                channel.handle_packet(data)
         except:
             raise Exception("session readloop")
 
-    def getCh(self, channel_id: int) -> 'Channel':
-        ch = self.channels[channel_id]
-        if ch.local_id != channel_id:
-            print("bad ids: %s, %s, %s" % (channel_id, ch.local_id, ch.remote_id))
-        return ch
+    def get_ch(self, channel_id: int) -> 'Channel':
+        channel = self.channels[channel_id]
+        if channel.local_id != channel_id:
+            print("bad ids: %s, %s, %s" % (channel_id, channel.local_id, channel.remote_id))
+        return channel
 
-    def addCh(self, ch: 'Channel') -> int:
-        for i, v in enumerate(self.channels):
-            if not v:
-                self.channels[i] = ch
+    def add_ch(self, channel: 'Channel') -> int:
+        for i, var in enumerate(self.channels):
+            if not var:
+                self.channels[i] = channel
                 return i
-        self.channels.append(ch)
+        self.channels.append(channel)
         return len(self.channels)-1
 
     def rm_ch(self, channel_id: int):
@@ -326,8 +326,8 @@ class Channel():
             return
         if packet.get_uint_8(0) == MSG_CHANNEL_OPEN_FAILURE:
             fmsg: 'ChannelOpenFailureMsg' = decode(packet.buffer)
-            self.session.rm_ch(fmsg.peers_id) # fix this one later
-            self.ready.push(False) # fix this one later
+            self.session.rm_ch(fmsg.peers_id) # TODO fix this one later
+            self.ready.push(False) # TODO fix this one later
             return
         if packet.get_uint_8(0) == MSG_CHANNEL_OPEN_CONFIRM:
             cmsg: 'ChannelOpenConfirmMsg' = decode(packet.buffer)
@@ -336,7 +336,7 @@ class Channel():
             self.remote_id = cmsg.my_id
             self.max_remote_pay_load = cmsg.max_packet_size
             self.remote_win += cmsg.my_window
-            self.ready.push(True) # fix this one later
+            self.ready.push(True) # TODO fix this one later
             return
         if packet.get_uint_8(0) == MSG_CHANNEL_WINDOW_ADJUST:
             amsg: 'ChannelWindowAdjustMsg' = decode(packet.buffer)
@@ -472,9 +472,9 @@ def decode(packet: list):
     if element == MSG_CHANNEL_DATA:
         data.buffer = packet
         data_length = data.get_uint_32(5)
-        dataMsg = ChannelDataMsg(data.get_uint_32(1), data_length, empty_array(data_length))
-        dataMsg.rest = empty_array(9)
-        return dataMsg
+        data_msg = ChannelDataMsg(data.get_uint_32(1), data_length, empty_array(data_length))
+        data_msg.rest = empty_array(9)
+        return data_msg
     if element == MSG_CHANNEL_EOF:
         data.buffer = packet
         eof_msg = ChannelEOFMsg(data.get_uint_32(1))

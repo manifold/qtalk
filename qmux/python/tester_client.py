@@ -12,6 +12,8 @@ async def main():
 	conn = await asyncio.ensure_future(conn)
 	sess = Session(conn, loop.create_task)
 	sess.new_channel()
+	ch = await sess.open()
+	pdb.set_trace()
 	ch = await sess.accept()
 	b = ch.read() #ioutil.ReadAll(ch)
 	ch = sess.open()
