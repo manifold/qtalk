@@ -26,7 +26,7 @@ func (s *quicSession) Close() error {
 }
 
 func (s *quicSession) Open() (Channel, error) {
-	stream, err := s.OpenStreamSync()
+	stream, err := s.OpenStreamSync(context.Background())
 	return &quicChannel{stream}, err
 }
 
