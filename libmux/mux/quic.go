@@ -1,6 +1,7 @@
 package mux
 
 import (
+	"context"
 	"crypto/tls"
 
 	quic "github.com/lucas-clemente/quic-go"
@@ -30,7 +31,7 @@ func (s *quicSession) Open() (Channel, error) {
 }
 
 func (s *quicSession) Accept() (Channel, error) {
-	stream, err := s.AcceptStream()
+	stream, err := s.AcceptStream(context.Background())
 	return &quicChannel{stream}, err
 }
 
@@ -47,6 +48,6 @@ type quicListener struct {
 }
 
 func (l *quicListener) Accept() (Session, error) {
-	sess, err := l.Listener.Accept()
+	sess, err := l.Listener.Accept(context.Background())
 	return &quicSession{sess}, err
 }
