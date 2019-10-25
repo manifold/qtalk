@@ -5,7 +5,7 @@ import asyncio
 
 class DataView():
     def __init__(self, buffer):
-        self.buffer = [element.to_bytes(1, 'little') for element in buffer] # changed bytes(element) to element.to_bytes so 0 is converted into b'\x00' instead of b'' (None)
+        self.buffer = [element.to_bytes(1, 'little') for element in buffer]
 
     def get_uint_8(self, index):
         try:
@@ -120,7 +120,7 @@ class Queue():
         if self.queue:
             promise.set_result(self.queue.pop(0))
             return promise
-        self.waiters.append(promise)
+        self.waiters.append(promise) # the future is always going to be pending
         return promise
 
     def close(self):
@@ -327,16 +327,16 @@ class Channel():
         if packet.get_uint_8(0) == MSG_CHANNEL_OPEN_FAILURE:
             fmsg: 'ChannelOpenFailureMsg' = decode(packet.buffer)
             self.session.rm_ch(fmsg.peers_id) # TODO fix this one later
-            self.ready.push(False) # TODO fix this one later
+            self.ready.push(False) # fix this one later
             return
         if packet.get_uint_8(0) == MSG_CHANNEL_OPEN_CONFIRM:
-            cmsg: 'ChannelOpenConfirmMsg' = decode(packet.buffer)
+            cmsg: 'ChannelOpenConfirmMsg' = decode(packet.buffer) # the 13th element in packet will always be 0
             if cmsg.max_packet_size < MIN_PACKET_LENGTH or cmsg.max_packet_size > 1<<30:
                 raise Exception("invalid max packet size")
             self.remote_id = cmsg.my_id
             self.max_remote_pay_load = cmsg.max_packet_size
             self.remote_win += cmsg.my_window
-            self.ready.push(True) # TODO fix this one later
+            self.ready.push(True) # fix this one later
             return
         if packet.get_uint_8(0) == MSG_CHANNEL_WINDOW_ADJUST:
             amsg: 'ChannelWindowAdjustMsg' = decode(packet.buffer)
@@ -381,7 +381,7 @@ class Channel():
             raise Exception("EOF")
         header = DataView(empty_array(9))
         header.set_uint_8(0, MSG_CHANNEL_DATA)
-        header.set_uint_32(1, self.remote_id) # remote ID can't be 0
+        header.set_uint_32(1, self.remote_id)
         header.set_uint_32(5, len(buffer))
         packet = empty_array(9 + len(buffer))
         packet[0] = header.buffer
@@ -414,7 +414,7 @@ class Channel():
         self.sent_EOF = True
         await self.send_message(MSG_CHANNEL_EOF, ChannelEOFMsg(self.remote_id))
 
-def encode(number: int, obj) -> bytes: # changed type to number
+def encode(number: int, obj) -> bytes:
     if number == MSG_CHANNEL_CLOSE:
         data = DataView(empty_array(5))
         data.set_uint_8(0, number)
@@ -464,7 +464,7 @@ def encode(number: int, obj) -> bytes: # changed type to number
 
 def decode(packet: list):
     element = int.from_bytes(packet[0], 'little')
-    data = DataView([]) # since packet is a bytes list, we can't use it as the argument in DataView. (can't convert bytes with to_bytes again)
+    data = DataView([])
     if element == MSG_CHANNEL_CLOSE:
         data.buffer = packet
         close_msg = ChannelCloseMsg(data.get_uint_32(1))
@@ -485,7 +485,7 @@ def decode(packet: list):
         return open_msg
     if element == MSG_CHANNEL_OPEN_CONFIRM:
         data.buffer = packet
-        confirm_msg = ChannelOpenConfirmMsg(data.get_uint_32(1), data.get_uint_32(5), data.get_uint_32(9), data.get_uint_32(13))
+        confirm_msg = ChannelOpenConfirmMsg(data.get_uint_32(1), data.get_uint_32(5), data.get_uint_32(9), data.get_uint_32(13)) # to avoid max packet exception change the last argument to 10
         return confirm_msg
     if element == MSG_CHANNEL_OPEN_FAILURE:
         data.buffer = packet

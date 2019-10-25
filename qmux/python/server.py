@@ -7,10 +7,10 @@ async def handle_echo(reader, writer):
     
     ch = await sess.open()
     ch.write(b"tester echo")
-    await ch.close()
     # close? send might not have finished
-
-    ch = await sess.accept()
+    
+    #await ch.close()
+    ch = await sess.accept() # this doesn't work
     data = await ch.read(11)
     message = data.decode()
     print(message)
