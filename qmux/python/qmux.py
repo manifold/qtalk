@@ -1,52 +1,47 @@
 from typing import Callable, List
 from abc import ABC, abstractmethod
 from functools import reduce
-import asyncio
+import asyncio, struct
 
-class DataView():
+import pdb, struct
+from functools import reduce
+
+class DataView(): # re-re-written again!
     def __init__(self, buffer):
-        self.buffer = [element.to_bytes(1, 'little') for element in buffer]
+        self.buffer = [element.to_bytes(1, 'big') for element in buffer]
 
     def get_uint_8(self, index):
-        try:
-            return int.from_bytes(int.from_bytes(self.buffer[index], 'big').to_bytes(1, 'little'), 'big')
-        except OverflowError:
-            if int.from_bytes(self.buffer[index], 'big') <= 65535:
-                return int.from_bytes(int.from_bytes(self.buffer[index], 'big').to_bytes(2, 'little'), 'little') // 256
-            return int.from_bytes(int.from_bytes(self.buffer[index], 'big').to_bytes(4, 'little'), 'big') // 4294967296
-
+        return struct.unpack('>B', self.buffer[index])[0]
+    
     def set_uint_8(self, index, number):
         if number > 255 or number < 0:
-            number = 0
-        self.buffer[index] = number.to_bytes(1, 'little')
-
+            number = number % 255
+        self.buffer[index] = struct.pack(">B", number)
+        
     def get_uint_16(self, index):
-        try:
-            if int.from_bytes(self.buffer[index], 'big') <= 255:
-                return int.from_bytes(int.from_bytes(self.buffer[index], 'big').to_bytes(2, 'little'), 'big')
-            return int.from_bytes(int.from_bytes(self.buffer[index], 'big').to_bytes(2, 'little'), 'big')
-        except OverflowError:
-            return int.from_bytes(int.from_bytes(self.buffer[index], 'big').to_bytes(4, 'little'), 'big') // 65536
-
-
+        byte_list = []
+        for byte in self.buffer[index:index+2]:
+            byte_list.append(byte)
+        return struct.unpack('>H', reduce(lambda a, b: a + b, byte_list))[0]
+    
     def set_uint_16(self, index, number):
-        if number > 65535 or number < 0:
-            number = 0
-        self.buffer[index] = number.to_bytes(2, 'little')
-
+        bytes = struct.pack('>H', number)
+        for byte_index, byte in enumerate(bytes):
+            self.buffer[index+byte_index] = struct.pack(">B", byte)
+    
     def get_uint_32(self, index):
-        return int.from_bytes(int.from_bytes(self.buffer[index], 'big').to_bytes(4, 'little'), 'big')
-
+        byte_list = []
+        for byte in self.buffer[index:index+4]:
+            byte_list.append(byte)
+        return struct.unpack('>L', reduce(lambda a, b: a + b, byte_list))[0]
+    
     def set_uint_32(self, index, number):
-        if number > 4294967295 or number < 0:
-            number = 0
-        self.buffer[index] = number.to_bytes(4, 'little')
+        bytes = struct.pack('>L', number)
+        for byte_index, byte in enumerate(bytes):
+            self.buffer[index+byte_index] = struct.pack(">B", byte)
 
     def bytes(self):
         return reduce(lambda a, b: a + b, self.buffer)
-
-#    def from_bytes(self):
-#        return [int.from_bytes(element, 'little') for element in self.buffer]
 
 def empty_array(length):
     return [0] * length
@@ -485,7 +480,7 @@ def decode(packet: list):
         return open_msg
     if element == MSG_CHANNEL_OPEN_CONFIRM:
         data.buffer = packet
-        confirm_msg = ChannelOpenConfirmMsg(data.get_uint_32(1), data.get_uint_32(5), data.get_uint_32(9), data.get_uint_32(13)) # to avoid max packet exception change the last argument to 10
+        confirm_msg = ChannelOpenConfirmMsg(data.get_uint_32(1), data.get_uint_32(5), data.get_uint_32(9), data.get_uint_32(13))
         return confirm_msg
     if element == MSG_CHANNEL_OPEN_FAILURE:
         data.buffer = packet
