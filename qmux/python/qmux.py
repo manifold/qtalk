@@ -1,10 +1,8 @@
 from typing import Callable, List
 from abc import ABC, abstractmethod
 from functools import reduce
-import asyncio, struct
-
-import pdb, struct
-from functools import reduce
+import asyncio
+import struct
 
 class DataView(): # re-re-written again!
     def __init__(self, buffer):
@@ -12,32 +10,32 @@ class DataView(): # re-re-written again!
 
     def get_uint_8(self, index):
         return struct.unpack('>B', self.buffer[index])[0]
-    
+
     def set_uint_8(self, index, number):
         if number > 255 or number < 0:
             number = number % 255
         self.buffer[index] = struct.pack(">B", number)
-        
+
     def get_uint_16(self, index):
         byte_list = []
         for byte in self.buffer[index:index+2]:
             byte_list.append(byte)
         return struct.unpack('>H', reduce(lambda a, b: a + b, byte_list))[0]
-    
+
     def set_uint_16(self, index, number):
-        bytes = struct.pack('>H', number)
-        for byte_index, byte in enumerate(bytes):
+        struct_bytes = struct.pack('>H', number)
+        for byte_index, byte in enumerate(struct_bytes):
             self.buffer[index+byte_index] = struct.pack(">B", byte)
-    
+
     def get_uint_32(self, index):
         byte_list = []
         for byte in self.buffer[index:index+4]:
             byte_list.append(byte)
         return struct.unpack('>L', reduce(lambda a, b: a + b, byte_list))[0]
-    
+
     def set_uint_32(self, index, number):
-        bytes = struct.pack('>L', number)
-        for byte_index, byte in enumerate(bytes):
+        struct_bytes = struct.pack('>L', number)
+        for byte_index, byte in enumerate(struct_bytes):
             self.buffer[index+byte_index] = struct.pack(">B", byte)
 
     def bytes(self):
@@ -115,7 +113,7 @@ class Queue():
         if self.queue:
             promise.set_result(self.queue.pop(0))
             return promise
-        self.waiters.append(promise) # the future is always going to be pending
+        self.waiters.append(promise)
         return promise
 
     def close(self):
@@ -142,7 +140,7 @@ class TCPConn(IConn):
         self.reader = reader
         self.writer = writer
 
-    async def read(self, length: int) -> 'asyncio.Future': # should this return a future?
+    async def read(self, length: int) -> 'asyncio.Future':
         try:
             return await self.reader.read(length)
         except ConnectionResetError:
@@ -283,7 +281,7 @@ class Channel():
     max_remote_pay_load = 0
     session = None
     ready = None
-    sent_EOF = None
+    sent_eof = None
     got_EOF = None
     sent_close = None
     remote_win = 0
@@ -321,17 +319,17 @@ class Channel():
             return
         if packet.get_uint_8(0) == MSG_CHANNEL_OPEN_FAILURE:
             fmsg: 'ChannelOpenFailureMsg' = decode(packet.buffer)
-            self.session.rm_ch(fmsg.peers_id) # TODO fix this one later
-            self.ready.push(False) # fix this one later
+            self.session.rm_ch(fmsg.peers_id)
+            self.ready.push(False)
             return
         if packet.get_uint_8(0) == MSG_CHANNEL_OPEN_CONFIRM:
-            cmsg: 'ChannelOpenConfirmMsg' = decode(packet.buffer) # the 13th element in packet will always be 0
+            cmsg: 'ChannelOpenConfirmMsg' = decode(packet.buffer)
             if cmsg.max_packet_size < MIN_PACKET_LENGTH or cmsg.max_packet_size > 1<<30:
                 raise Exception("invalid max packet size")
             self.remote_id = cmsg.my_id
             self.max_remote_pay_load = cmsg.max_packet_size
             self.remote_win += cmsg.my_window
-            self.ready.push(True) # fix this one later
+            self.ready.push(True)
             return
         if packet.get_uint_8(0) == MSG_CHANNEL_WINDOW_ADJUST:
             amsg: 'ChannelWindowAdjustMsg' = decode(packet.buffer)
@@ -372,7 +370,7 @@ class Channel():
         return try_read()
 
     def write(self, buffer: list) -> 'asyncio.Future':
-        if self.sent_EOF:
+        if self.sent_eof:
             raise Exception("EOF")
         header = DataView(empty_array(9))
         header.set_uint_8(0, MSG_CHANNEL_DATA)
@@ -382,7 +380,7 @@ class Channel():
         packet[0] = header.buffer
         packet[9] = empty_array(len(buffer))
         actual_packet = [*header.buffer, *empty_array(8), *packet[9], *[element.to_bytes(1, 'little') for element in empty_array(len(buffer))]]
-        actual_packet = reduce(lambda a, b: a + b, [bytes(element) for element in actual_packet]) # check whether this should return a list or a bytes-like string
+        actual_packet = reduce(lambda a, b: a + b, [bytes(element) for element in actual_packet])
         promise: 'asyncio.Future' = asyncio.Future()
         promise.set_result(self.send_packet(actual_packet))
         return promise
@@ -406,7 +404,7 @@ class Channel():
         self.session.rm_ch(self.local_id)
 
     async def close_write(self):
-        self.sent_EOF = True
+        self.sent_eof = True
         await self.send_message(MSG_CHANNEL_EOF, ChannelEOFMsg(self.remote_id))
 
 def encode(number: int, obj) -> bytes:
