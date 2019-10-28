@@ -142,7 +142,7 @@ class TCPConn(IConn):
 
     async def read(self, length: int) -> 'asyncio.Future':
         try:            
-            return await self.reader.read(length) # third iteration freezes the app
+            return await self.reader.read(length) # third loop iteration freezes the app
         except ConnectionResetError:
             return []
 
