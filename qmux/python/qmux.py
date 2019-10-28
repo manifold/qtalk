@@ -141,8 +141,8 @@ class TCPConn(IConn):
         self.writer = writer
 
     async def read(self, length: int) -> 'asyncio.Future':
-        try:
-            return await self.reader.read(length)
+        try:            
+            return await self.reader.read(length) # third iteration freezes the app
         except ConnectionResetError:
             return []
 
@@ -234,11 +234,8 @@ class Session():
                 if not packet.result():
                     self.close()
                     return
-                try:
-                    if packet.result()[0] == MSG_CHANNEL_OPEN:
-                        await self.handle_channel_open(packet.result())
-                except TypeError:
-                    pass
+                if packet.result()[0] == MSG_CHANNEL_OPEN:
+                    await self.handle_channel_open(packet.result())
                 data = DataView(packet.result())
                 data_id = data.get_uint_32(1)
                 channel = self.get_ch(data_id)
@@ -320,7 +317,7 @@ class Channel():
         if packet.get_uint_8(0) == MSG_CHANNEL_OPEN_FAILURE:
             fmsg: 'ChannelOpenFailureMsg' = decode(packet.buffer)
             self.session.rm_ch(fmsg.peers_id)
-            self.ready.push(False)
+            self.ready.push(False) 
             return
         if packet.get_uint_8(0) == MSG_CHANNEL_OPEN_CONFIRM:
             cmsg: 'ChannelOpenConfirmMsg' = decode(packet.buffer)
