@@ -93,10 +93,10 @@ class ChannelCloseMsg():
         self.peers_id = peers_id
 
 class Queue():
-    def __init__(self, queue: list = [], waiters: List[Callable] = [], closed: bool = None):
-        self.queue = queue
-        self.waiters = waiters
-        self.closed = closed
+    def __init__(self):
+        self.queue = []
+        self.waiters = []
+        self.closed = False
 
     def push(self, obj):
         if self.closed:
@@ -119,8 +119,9 @@ class Queue():
     def close(self):
         if self.closed:
             return
+        self.closed = True
         for waiter in self.waiters:
-            waiter(None)
+            waiter.cancel()
 
 class IConn(ABC):
     @abstractmethod
@@ -161,6 +162,7 @@ class Session():
         self.conn = conn
         self.channels: list = []
         self.incoming = Queue()
+        self.spawn = spawn
         spawn(self.loop())
 
     @asyncio.coroutine
@@ -294,6 +296,7 @@ class Channel():
             raise Exception("EOF")
         self.sent_close = packet[0] == MSG_CHANNEL_CLOSE
         promise: 'asyncio.Future' = asyncio.Future()
+        print(packet)
         promise.set_result(self.session.conn.write(bytes(packet)))
         return promise
 
@@ -301,7 +304,7 @@ class Channel():
         data = DataView(encode(number, msg))
         data.set_uint_32(1, self.remote_id)
         promise: 'asyncio.Future' = asyncio.Future()
-        promise.set_result(self.send_packet(empty_array(len(data.buffer))))
+        promise.set_result(self.send_packet(data.bytes()))
         return promise
 
     def handle_packet(self, packet: 'DataView'):
@@ -373,17 +376,12 @@ class Channel():
         header.set_uint_8(0, MSG_CHANNEL_DATA)
         header.set_uint_32(1, self.remote_id)
         header.set_uint_32(5, len(buffer))
-        packet = empty_array(9 + len(buffer))
-        packet[0] = header.buffer
-        packet[9] = empty_array(len(buffer))
-        actual_packet = [*header.buffer, *empty_array(8), *packet[9], *[element.to_bytes(1, 'little') for element in empty_array(len(buffer))]]
-        actual_packet = reduce(lambda a, b: a + b, [bytes(element) for element in actual_packet])
         promise: 'asyncio.Future' = asyncio.Future()
-        promise.set_result(self.send_packet(actual_packet))
+        promise.set_result(self.send_packet(header.bytes()+buffer))
         return promise
 
     def handle_close(self):
-        raise Exception("channel closed")
+        self.session.spawn(self.close())
 
     async def close(self):
         if not self.sent_close:
