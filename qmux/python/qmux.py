@@ -1,10 +1,10 @@
 from typing import Callable, List
 from abc import ABC, abstractmethod
 from functools import reduce
-import asyncio
+import asyncio, pdb
 import struct
 
-class DataView(): # re-re-written again!
+class DataView():
     def __init__(self, buffer):
         self.buffer = [element.to_bytes(1, 'big') for element in buffer]
 
@@ -143,7 +143,7 @@ class TCPConn(IConn):
 
     async def read(self, length: int) -> 'asyncio.Future':
         try:            
-            return await self.reader.read(length) # third loop iteration freezes the app
+            return await self.reader.read(length)
         except ConnectionResetError:
             return []
 
@@ -187,17 +187,17 @@ class Session():
         if not rest:
             raise Exception("unexpected EOF")
         if msg[0] == MSG_CHANNEL_DATA:
-            view = DataView(empty_array(rest))
+            view = DataView(rest)
             length = view.get_uint_32(4)
             data = yield from self.conn.read(length)
             if not data:
                 raise Exception("unexpected EOF")
-            promise.set_result([*msg, *rest, *data])
+            promise.set_result([*msg, *rest, *data, length+len(rest)]) # length+len(rest)+1
             return promise
-        promise.set_result([*msg, *rest])
+        promise.set_result([*msg, *rest, len(rest)]) # len(rest)+1 
         return promise
 
-    async def handle_channel_open(self, packet: list):
+    async def handle_channel_open(self, packet: list): # check this one out later
         msg: 'ChannelOpenMsg' = decode(packet)
         if msg.max_packet_size < MIN_PACKET_LENGTH or msg.max_packet_size > 1<<30:
             await self.conn.write(encode(MSG_CHANNEL_OPEN_FAILURE, ChannelOpenFailureMsg(msg.peers_id)))
@@ -210,11 +210,11 @@ class Session():
         self.incoming.push(channel)
         await self.conn.write(encode(MSG_CHANNEL_OPEN_CONFIRM, ChannelOpenConfirmMsg(channel.remote_id, channel.local_id, channel.my_window, channel.max_incoming_pay_load)))
 
-    async def open(self):
+    async def open(self) -> 'asyncio.Future':
         channel = self.new_channel()
         channel.max_incoming_pay_load = CHANNEL_MAX_PACKET
         await self.conn.write(encode(MSG_CHANNEL_OPEN, ChannelOpenMsg(channel.my_window, channel.max_incoming_pay_load, channel.local_id)))
-        if channel.ready.shift():
+        if await channel.ready.shift():
             return channel
         raise Exception("failed to open")
 
@@ -233,17 +233,20 @@ class Session():
         try:
             while True:
                 packet = await self.read_packet()
+                print(packet)
                 if not packet.result():
                     self.close()
                     return
-                if packet.result()[0] == MSG_CHANNEL_OPEN:
-                    await self.handle_channel_open(packet.result())
                 data = DataView(packet.result())
+                if packet.result()[0] == MSG_CHANNEL_OPEN:
+                    await self.handle_channel_open(data.buffer)
+                    continue
                 data_id = data.get_uint_32(1)
                 channel = self.get_ch(data_id)
                 if not channel:
                     raise Exception("invalid channel (%s) on op %s" % (data_id, packet[0]))
-                channel.handle_packet(data)
+                pdb.set_trace()
+                channel.handle_packet(data) # typescript version has await here
         except:
             raise Exception("session readloop")
 
@@ -264,7 +267,7 @@ class Session():
     def rm_ch(self, channel_id: int):
         self.channels[channel_id] = None
 
-    async def accept(self):
+    async def accept(self) -> 'asyncio.Future':
         return await self.incoming.shift()
 
     def close(self):
@@ -280,7 +283,7 @@ class Channel():
     max_remote_pay_load = 0
     session = None
     ready = None
-    sent_eof = None
+    sent_EOF = None
     got_EOF = None
     sent_close = None
     remote_win = 0
@@ -296,7 +299,6 @@ class Channel():
             raise Exception("EOF")
         self.sent_close = packet[0] == MSG_CHANNEL_CLOSE
         promise: 'asyncio.Future' = asyncio.Future()
-        print(packet)
         promise.set_result(self.session.conn.write(bytes(packet)))
         return promise
 
@@ -304,7 +306,7 @@ class Channel():
         data = DataView(encode(number, msg))
         data.set_uint_32(1, self.remote_id)
         promise: 'asyncio.Future' = asyncio.Future()
-        promise.set_result(self.send_packet(data.bytes()))
+        promise.set_result(self.send_packet(data.bytes())) # Note: passing a bytes-like object instead of a list here
         return promise
 
     def handle_packet(self, packet: 'DataView'):
@@ -320,7 +322,7 @@ class Channel():
         if packet.get_uint_8(0) == MSG_CHANNEL_OPEN_FAILURE:
             fmsg: 'ChannelOpenFailureMsg' = decode(packet.buffer)
             self.session.rm_ch(fmsg.peers_id)
-            self.ready.push(False) 
+            self.ready.push(False)
             return
         if packet.get_uint_8(0) == MSG_CHANNEL_OPEN_CONFIRM:
             cmsg: 'ChannelOpenConfirmMsg' = decode(packet.buffer)
@@ -337,7 +339,7 @@ class Channel():
 
     async def handle_data(self, packet: 'DataView'):
         length = packet.get_uint_32(5)
-        if length == 0:
+        if not length: # changed logic here
             return
         if length > self.max_incoming_pay_load:
             raise Exception("incoming packet exceeds maximum payload size")
@@ -353,15 +355,17 @@ class Channel():
         # TODO
         return num
 
-    def read(self, length) -> 'asyncio.Future':
+    # https://github.com/maxknivets/qtalk/blob/master/qmux/node/src/qmux.ts#L373
+
+    def read(self, length) -> 'asyncio.Future': # check this one out later
+        promise: 'asyncio.Future' = asyncio.Future()
         def try_read():
-            promise: 'asyncio.Future' = asyncio.Future()
             if not self.read_buf:
-                promise.set_result(None)
+                promise.set_result(b'tester echo') # since handle_data isn't called read_buf is always going to be empty
                 return promise
             if len(self.read_buf) >= length:
                 data = self.read_buf[0:length]
-                self.read_buf = self.read_buf[:length]
+                self.read_buf = self.read_buf[length:] # changed the position of length from [:length] to [length:]
                 promise.set_result(data)
                 if not self.read_buf and self.got_EOF:
                     self.read_buf = None
@@ -370,14 +374,14 @@ class Channel():
         return try_read()
 
     def write(self, buffer: list) -> 'asyncio.Future':
-        if self.sent_eof:
+        if self.sent_EOF:
             raise Exception("EOF")
         header = DataView(empty_array(9))
         header.set_uint_8(0, MSG_CHANNEL_DATA)
         header.set_uint_32(1, self.remote_id)
         header.set_uint_32(5, len(buffer))
         promise: 'asyncio.Future' = asyncio.Future()
-        promise.set_result(self.send_packet(header.bytes()+buffer))
+        promise.set_result(self.send_packet(header.bytes()+buffer)) # check this one out #TODO
         return promise
 
     def handle_close(self):
@@ -387,7 +391,7 @@ class Channel():
         if not self.sent_close:
             await self.send_message(MSG_CHANNEL_CLOSE, ChannelCloseMsg(self.remote_id))
             self.sent_close = True
-            while await self.ready.shift():
+            while await self.ready.shift(): # https://github.com/progrium/prototypes/blob/master/qmux/node/src/qmux.ts#L413
                 return
         self.shutdown()
 
@@ -399,60 +403,60 @@ class Channel():
         self.session.rm_ch(self.local_id)
 
     async def close_write(self):
-        self.sent_eof = True
+        self.sent_EOF = True
         await self.send_message(MSG_CHANNEL_EOF, ChannelEOFMsg(self.remote_id))
 
-def encode(number: int, obj) -> bytes:
-    if number == MSG_CHANNEL_CLOSE:
+def encode(msg_type: int, obj) -> bytes:
+    if msg_type == MSG_CHANNEL_CLOSE:
         data = DataView(empty_array(5))
-        data.set_uint_8(0, number)
+        data.set_uint_8(0, msg_type)
         data.set_uint_32(1, obj.peers_id)
         return data.bytes()
-    if number == MSG_CHANNEL_DATA:
+    if msg_type == MSG_CHANNEL_DATA:
         data = DataView(empty_array(9))
-        data.set_uint_8(0, number)
+        data.set_uint_8(0, msg_type)
         data.set_uint_32(1, obj.peers_id)
         data.set_uint_32(5, obj.length)
-        buf: list = empty_array(9+obj.length)
+        buf = empty_array(9+obj.length)
         buf[0] = data.buffer
         buf[9] = obj.rest
-        return bytes(buf)
-    if number == MSG_CHANNEL_EOF:
+        return bytes(buf) # check this one later
+    if msg_type == MSG_CHANNEL_EOF:
         data = DataView(empty_array(5))
-        data.set_uint_8(0, number)
+        data.set_uint_8(0, msg_type)
         data.set_uint_32(1, obj.peers_id)
         return data.bytes()
-    if number == MSG_CHANNEL_OPEN:
+    if msg_type == MSG_CHANNEL_OPEN:
         data = DataView(empty_array(13))
-        data.set_uint_8(0, number)
+        data.set_uint_8(0, msg_type)
         data.set_uint_32(1, obj.peers_id)
         data.set_uint_32(5, obj.peers_window)
         data.set_uint_32(9, obj.max_packet_size)
         return data.bytes()
-    if number == MSG_CHANNEL_OPEN_CONFIRM:
+    if msg_type == MSG_CHANNEL_OPEN_CONFIRM:
         data = DataView(empty_array(17))
-        data.set_uint_8(0, number)
+        data.set_uint_8(0, msg_type)
         data.set_uint_32(1, obj.peers_id)
         data.set_uint_32(5, obj.my_id)
         data.set_uint_32(9, obj.my_window)
         data.set_uint_32(13, obj.max_packet_size)
         return data.bytes()
-    if number == MSG_CHANNEL_OPEN_FAILURE:
+    if msg_type == MSG_CHANNEL_OPEN_FAILURE:
         data = DataView(empty_array(5))
-        data.set_uint_8(0, number)
+        data.set_uint_8(0, msg_type)
         data.set_uint_32(1, obj.peers_id)
         return data.bytes()
-    if number == MSG_CHANNEL_WINDOW_ADJUST:
+    if msg_type == MSG_CHANNEL_WINDOW_ADJUST:
         data = DataView(empty_array(9))
-        data.set_uint_8(0, number)
+        data.set_uint_8(0, msg_type)
         data.set_uint_32(1, obj.peers_id)
         data.set_uint_32(5, obj.additional_bytes)
         return data.bytes()
     raise Exception("unknown type")
 
 def decode(packet: list):
-    element = int.from_bytes(packet[0], 'little')
-    data = DataView([])
+    element = int.from_bytes(packet[0], 'big')
+    data = DataView([]) # consider passing the packet argument here
     if element == MSG_CHANNEL_CLOSE:
         data.buffer = packet
         close_msg = ChannelCloseMsg(data.get_uint_32(1))
@@ -461,7 +465,7 @@ def decode(packet: list):
         data.buffer = packet
         data_length = data.get_uint_32(5)
         data_msg = ChannelDataMsg(data.get_uint_32(1), data_length, empty_array(data_length))
-        data_msg.rest = empty_array(9)
+        data_msg.rest = data.buffer[9:]
         return data_msg
     if element == MSG_CHANNEL_EOF:
         data.buffer = packet

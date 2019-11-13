@@ -5,13 +5,12 @@ async def handle_echo(reader, writer):
     conn = TCPConn(reader, writer)
     sess = Session(conn, loop.create_task)
     
-    ch = await sess.open()
-    ch.write(b"tester echo")
-    await ch.close_write()
-    # close? send might not have finished
+    channel = await sess.open()
+    channel.write(b"tester echo")
+    await channel.close_write()
+    channel = await sess.accept()
     
-    ch = await sess.accept() # this doesn't work
-    data = await ch.read(11)
+    data = await channel.read(11) # qmux: unexpected packet in response to channel open: <nil>
     message = data.decode()
     print(message)
     addr = writer.get_extra_info('peername')
