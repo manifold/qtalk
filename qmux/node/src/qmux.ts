@@ -357,7 +357,7 @@ export class Channel {
 		var data = Buffer.from(packet.buffer).slice(9);
 		// TODO: check packet length
 		if (this.myWindow < length) {
-			throw "remot side wrote too much";
+			throw "remote side wrote too much";
 		}
 		this.myWindow -= length;
 		this.readBuf = Buffer.concat([this.readBuf, data], this.readBuf.length+data.length);

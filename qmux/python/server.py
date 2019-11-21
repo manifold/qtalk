@@ -9,8 +9,8 @@ async def handle_echo(reader, writer):
     channel.write(b"tester echo")
     await channel.close_write()
     channel = await sess.accept()
-    
     data = await channel.read(11) # qmux: unexpected packet in response to channel open: <nil>
+
     message = data.decode()
     print(message)
     addr = writer.get_extra_info('peername')
