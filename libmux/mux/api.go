@@ -21,6 +21,8 @@ type Channel interface {
 	io.Reader
 	io.Writer
 	io.Closer
+
+	// TODO? CloseWrite() error
 }
 
 type Listener interface {

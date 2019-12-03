@@ -56,6 +56,14 @@ class queue {
 	}
 }
 
+export function DialUnix(path: string): Promise<IConn> {
+    return new Promise(resolve => {
+        var socket = net.createConnection(path, () => {
+            resolve(new TCPConn(socket));
+        });
+    })
+}
+
 export function DialTCP(port: number, host?: string): Promise<IConn> {
     return new Promise(resolve => {
         var socket = net.createConnection(port, host, () => {
@@ -63,6 +71,13 @@ export function DialTCP(port: number, host?: string): Promise<IConn> {
         });
     })
 }
+
+// TODO: modify TCPListener.listen() to support paths
+// export async function ListenUnix(path: string): Promise<IListener> {
+//     var listener = new TCPListener();
+//     await listener.listen(path);
+//     return listener;
+// }
 
 export async function ListenTCP(port: number, host?: string): Promise<IListener> {
     var listener = new TCPListener();
