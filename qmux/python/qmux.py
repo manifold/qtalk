@@ -57,7 +57,7 @@ CHANNEL_MAX_PACKET = 1 << 15
 CHANNEL_WINDOW_SIZE = 64 * CHANNEL_MAX_PACKET
 
 class ChannelOpenMsg():
-    def __init__(self, peers_window: int, max_packet_size: int, peers_id: int):
+    def __init__(self, peers_id: int, peers_window: int, max_packet_size: int):
         self.peers_id = peers_id
         self.peers_window = peers_window
         self.max_packet_size = max_packet_size
@@ -192,9 +192,9 @@ class Session():
             data = yield from self.conn.read(length)
             if not data:
                 raise Exception("unexpected EOF")
-            promise.set_result([*msg, *rest, *data, length+len(rest)]) # length+len(rest)+1
+            promise.set_result([*msg, *rest, *data])
             return promise
-        promise.set_result([*msg, *rest, len(rest)]) # len(rest)+1 
+        promise.set_result([*msg, *rest])
         return promise
 
     async def handle_channel_open(self, packet: list):
@@ -213,7 +213,7 @@ class Session():
     async def open(self) -> 'asyncio.Future':
         channel = self.new_channel()
         channel.max_incoming_pay_load = CHANNEL_MAX_PACKET
-        await self.conn.write(encode(MSG_CHANNEL_OPEN, ChannelOpenMsg(channel.my_window, channel.max_incoming_pay_load, channel.local_id)))
+        await self.conn.write(encode(MSG_CHANNEL_OPEN, ChannelOpenMsg(channel.local_id, channel.my_window, channel.max_incoming_pay_load)))
         if await channel.ready.shift():
             return channel
         raise Exception("failed to open")
@@ -223,7 +223,7 @@ class Session():
         channel.remote_win = 0
         channel.my_window = CHANNEL_WINDOW_SIZE
         channel.ready = Queue()
-        channel.read_buf = []
+        channel.read_buf = bytearray()
         channel.readers = []
         channel.session = self
         channel.local_id = self.add_ch(channel)
@@ -244,7 +244,7 @@ class Session():
                 channel = self.get_ch(data_id)
                 if not channel:
                     raise Exception("invalid channel (%s) on op %s" % (data_id, packet[0]))
-                channel.handle_packet(data) # typescript version has await here
+                await channel.handle_packet(data)
         except:
             raise Exception("session readloop")
 
@@ -286,7 +286,7 @@ class Channel():
     sent_close = None
     remote_win = 0
     my_window = 0
-    read_buf: list = []
+    read_buf = bytearray()
     readers: List[Callable]
 
     def ident(self) -> int:
@@ -307,15 +307,15 @@ class Channel():
         promise.set_result(self.send_packet(data.bytes()))
         return promise
 
-    def handle_packet(self, packet: 'DataView'):
+    async def handle_packet(self, packet: 'DataView'):
         if packet.get_uint_8(0) == MSG_CHANNEL_DATA:
-            self.handle_data(packet)
+            await self.handle_data(packet)
             return
         if packet.get_uint_8(0) == MSG_CHANNEL_CLOSE:
             self.handle_close()
             return
         if packet.get_uint_8(0) == MSG_CHANNEL_EOF:
-            # TODO
+            self.got_EOF = True
             return
         if packet.get_uint_8(0) == MSG_CHANNEL_OPEN_FAILURE:
             fmsg: 'ChannelOpenFailureMsg' = decode(packet.buffer)
@@ -345,7 +345,8 @@ class Channel():
         if self.my_window < length:
             raise Exception("remote side wrote too much")
         self.my_window -= length
-        self.read_buf = [self.read_buf, data, len(self.read_buf)+len(data)]
+        for element in data:
+            self.read_buf.extend(element)
         if self.readers:
             self.readers.pop(0)()
 
@@ -358,7 +359,7 @@ class Channel():
     def read(self, length) -> 'asyncio.Future':
         promise: 'asyncio.Future' = asyncio.Future()
         def try_read():
-            if not self.read_buf:
+            if self.read_buf is None:
                 promise.set_result(None)
                 return promise
             if len(self.read_buf) >= length:
@@ -369,6 +370,7 @@ class Channel():
                     self.read_buf = None
                 return promise
             self.readers.append(try_read)
+            return promise
         return try_read()
 
     def write(self, buffer: list) -> 'asyncio.Future':

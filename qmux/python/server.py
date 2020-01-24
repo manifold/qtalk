@@ -4,13 +4,11 @@ from qmux import Session, TCPConn, IConn, DataView, empty_array
 async def handle_echo(reader, writer):
     conn = TCPConn(reader, writer)
     sess = Session(conn, loop.create_task)
-    
     channel = await sess.open()
     channel.write(b"tester echo")
     await channel.close_write()
     channel = await sess.accept()
-    data = await channel.read(11) # qmux: unexpected packet in response to channel open: <nil>
-
+    data = await channel.read(11)
     message = data.decode()
     print(message)
     addr = writer.get_extra_info('peername')
