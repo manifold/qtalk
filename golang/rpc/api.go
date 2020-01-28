@@ -5,7 +5,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/manifold/qtalk/go/mux"
+	"github.com/manifold/qtalk/golang/mux"
 )
 
 type Responder interface {
