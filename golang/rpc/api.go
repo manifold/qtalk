@@ -1,11 +1,11 @@
-package qrpc
+package rpc
 
 import (
 	"fmt"
 	"strings"
 	"sync"
 
-	"github.com/manifold/qtalk/libmux/mux"
+	"github.com/manifold/qtalk/go/mux"
 )
 
 type Responder interface {

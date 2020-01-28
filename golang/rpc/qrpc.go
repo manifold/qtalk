@@ -1,4 +1,4 @@
-package qrpc
+package rpc
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	path_ "path"
 	"strings"
 
-	"github.com/manifold/qtalk/libmux/mux"
+	"github.com/manifold/qtalk/golang/mux"
 )
 
 type Call struct {

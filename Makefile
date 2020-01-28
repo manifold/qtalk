@@ -1,11 +1,11 @@
 
-link: qrpc/node/node_modules qmux/node/node_modules
-	cd qmux/node && yarn link
-	cd qrpc/node && yarn link
+link: javascript/qrpc/node_modules javascript/qmux/node_modules
+	cd javascript/qmux && yarn link
+	cd javascript/qrpc && yarn link
 
-qmux/node/node_modules:
-	cd qmux/node && yarn install
+javascript/qmux/node_modules:
+	cd javascript/qmux && yarn install
 
-qrpc/node/node_modules:
-	cd qrpc/node && yarn install
+javascript/qrpc/node_modules:
+	cd javascript/qrpc && yarn install
 

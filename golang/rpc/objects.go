@@ -1,4 +1,4 @@
-package qrpc
+package rpc
 
 import (
 	"fmt"

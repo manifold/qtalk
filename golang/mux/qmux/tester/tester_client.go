@@ -5,7 +5,7 @@ import (
 	"log"
 	"net"
 
-	qmux "github.com/manifold/qtalk/qmux/go"
+	"github.com/manifold/qtalk/golang/mux/qmux"
 )
 
 func fatal(err error) {
