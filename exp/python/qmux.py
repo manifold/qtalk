@@ -354,8 +354,6 @@ class Channel():
         # TODO
         return num
 
-    # https://github.com/maxknivets/qtalk/blob/master/qmux/node/src/qmux.ts#L373
-
     def read(self, length) -> 'asyncio.Future':
         promise: 'asyncio.Future' = asyncio.Future()
         def try_read():
@@ -420,7 +418,7 @@ def encode(msg_type: int, obj) -> bytes:
         buf = empty_array(9+obj.length)
         buf[0] = data.buffer
         buf[9] = obj.rest
-        return bytes(buf) # check this one later TODO
+        return bytes(buf)
     if msg_type == MSG_CHANNEL_EOF:
         data = DataView(empty_array(5))
         data.set_uint_8(0, msg_type)
