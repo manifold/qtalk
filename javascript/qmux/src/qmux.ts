@@ -1,4 +1,3 @@
-
 // message numbers
 const msgChannelOpen = 100;
 const msgChannelOpenConfirm = 101;
