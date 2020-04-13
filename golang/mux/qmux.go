@@ -43,8 +43,8 @@ func (c *qmuxChannel) Context() context.Context {
 	return c.ctx
 }
 
-func (c *qmuxChannel) ID() uint64 {
-	return uint64(c.ID())
+func (c *qmuxChannel) ID() uint32 {
+	return c.ID()
 }
 
 type qmuxListener struct {

@@ -1,6 +1,7 @@
 package qmux
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -78,6 +79,7 @@ type channelCloseMsg struct {
 }
 
 type Session interface {
+	Context() context.Context
 	Open() (Channel, error)
 	Accept() (Channel, error)
 	Close() error
@@ -89,6 +91,8 @@ type Session interface {
 // A Channel is an ordered, reliable, flow-controlled, duplex stream
 // that is multiplexed over a qmux connection.
 type Channel interface {
+	Context() context.Context
+
 	// Read reads up to len(data) bytes from the channel.
 	Read(data []byte) (int, error)
 
@@ -108,6 +112,7 @@ type Channel interface {
 }
 
 type session struct {
+	ctx      context.Context
 	conn     net.Conn
 	chanList chanList
 
@@ -116,6 +121,15 @@ type session struct {
 	errCond *sync.Cond
 	err     error
 	closeCh chan bool
+}
+
+func WithContext(s Session, ctx context.Context) Session {
+	ss, ok := s.(*session)
+	if !ok {
+		return s
+	}
+	ss.ctx = ctx
+	return ss
 }
 
 // NewSession returns a session that runs over the given connection.
@@ -140,6 +154,10 @@ func (s *session) sendMessage(msg interface{}) error {
 	}
 	_, err = s.conn.Write(b)
 	return err
+}
+
+func (s *session) Context() context.Context {
+	return s.ctx
 }
 
 func (s *session) Close() error {
@@ -305,6 +323,7 @@ func (s *session) Open() (Channel, error) {
 
 func (s *session) newChannel(direction channelDirection) *channel {
 	ch := &channel{
+		ctx:       s.ctx,
 		remoteWin: window{Cond: sync.NewCond(new(sync.Mutex))},
 		myWindow:  channelWindowSize,
 		pending:   newBuffer(),
@@ -320,6 +339,8 @@ func (s *session) newChannel(direction channelDirection) *channel {
 // channel is an implementation of the Channel interface that works
 // with the session class.
 type channel struct {
+	ctx context.Context
+
 	// R/O after creation
 	localId, remoteId uint32
 
@@ -362,6 +383,10 @@ type channel struct {
 
 func (ch *channel) ID() uint32 {
 	return ch.localId
+}
+
+func (ch *channel) Context() context.Context {
+	return ch.ctx
 }
 
 // writePacket sends a packet. If the packet is a channel close, it updates
