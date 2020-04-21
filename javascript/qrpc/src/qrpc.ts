@@ -1,8 +1,8 @@
 import * as msgpack from "msgpack-lite";
 
 interface Session {
-	open(): Promise<Channel>;
-	accept(): Promise<Channel>;
+    open(): Promise<Channel>;
+    accept(): Promise<Channel>;
     close(): Promise<void>;
 }
 
@@ -12,9 +12,9 @@ interface Listener {
 }
 
 interface Channel {
-	read(len: number): Promise<Buffer>;
-	write(buffer: Buffer): Promise<number>;
-	close(): Promise<void>;
+    read(len: number): Promise<Buffer>;
+    write(buffer: Buffer): Promise<number>;
+    close(): Promise<void>;
 }
 
 interface Codec {
@@ -47,7 +47,7 @@ class FrameCodec {
     readLimit: number;
     readCount: number;
 
-    constructor(channel: Channel, readLimit: number=-1) {
+    constructor(channel: Channel, readLimit: number = -1) {
         this.channel = channel;
         this.codec = msgpack;
         this.buf = [];
@@ -58,7 +58,7 @@ class FrameCodec {
     }
 
     async readLoop() {
-        while(true) {
+        while (true) {
             if (this.readLimit > 0 && this.readCount >= this.readLimit) {
                 return;
             }
@@ -84,7 +84,7 @@ class FrameCodec {
                 }
                 this.buf.push(v);
             } catch (e) {
-                throw new Error("codec readLoop: "+e);
+                throw new Error("codec readLoop: " + e);
             }
         }
     }
@@ -110,7 +110,7 @@ class FrameCodec {
 }
 
 export class API {
-    handlers: { [key:string]:Handler; };
+    handlers: { [key: string]: Handler; };
 
     constructor() {
         this.handlers = {};
@@ -142,14 +142,14 @@ export class API {
         var codec = new FrameCodec(ch);
         var cdata = await codec.decode();
         var call = new Call(cdata.Destination);
-	    call.parse();
+        call.parse();
         call.decode = () => codec.decode();
         call.caller = new Client(session);
-	    var header = new ResponseHeader();
+        var header = new ResponseHeader();
         var resp = new responder(ch, codec, header);
         var handler = this.handler(call.Destination);
         if (!handler) {
-            resp.return(new Error("handler does not exist for this destination: "+call.Destination));
+            resp.return(new Error("handler does not exist for this destination: " + call.Destination));
             return;
         }
         await handler.serveRPC(resp, call);
@@ -213,12 +213,12 @@ interface Caller {
 }
 
 export class Call {
-	Destination: string;
-	objectPath:  string;
-	method:      string;
-	caller:      Caller;
-    decode:      () => Promise<any>;
-    
+    Destination: string;
+    objectPath: string;
+    method: string;
+    caller: Caller;
+    decode: () => Promise<any>;
+
     constructor(Destination: string) {
         this.Destination = Destination;
     }
@@ -242,7 +242,7 @@ export class Call {
 }
 
 interface Handler {
-	serveRPC(r: Responder, c: Call): void;
+    serveRPC(r: Responder, c: Call): void;
 }
 
 export class Client implements Caller {
@@ -273,36 +273,36 @@ export class Client implements Caller {
     }
 
     async call(path: string, args: any): Promise<Response> {
+        var resp: Response = new Response();
         try {
             var ch = await this.session.open();
             var codec = new FrameCodec(ch, 2);
             await codec.encode(new Call(path));
             await codec.encode(args);
-        
+
             var header: ResponseHeader = await codec.decode();
             if (header.Error !== undefined && header.Error !== null) {
                 await ch.close();
                 return Promise.reject(header.Error);
             }
-            var resp: Response = new Response();
             resp.error = header.Error;
             resp.hijacked = header.Hijacked;
             resp.channel = ch;
-            resp.reply = await codec.decode(); 
+            resp.reply = await codec.decode();
             if (resp.hijacked !== true) {
                 await ch.close();
             }
-            return resp;    
+            return resp;
         } catch (e) {
-            await ch.close();
-            console.error(e);
+            console.error(e, path, args, resp);
+            //await ch.close();
         }
     }
 }
 
 export class Server {
     API: API;
-    
+
     async serveAPI(sess: Session) {
         while (true) {
             var ch = await sess.accept();
@@ -335,10 +335,10 @@ export class Server {
 
 function exportFunc(fn: Function, rcvr: any): Handler {
     return {
-        serveRPC: async function(r: Responder, c: Call) {
+        serveRPC: async function (r: Responder, c: Call) {
             var args = await c.decode();
             try {
-                r.return((await fn.apply(rcvr, [args])||null));
+                r.return((await fn.apply(rcvr, [args]) || null));
             } catch (e) {
                 switch (typeof e) {
                     case 'string':
@@ -348,10 +348,10 @@ function exportFunc(fn: Function, rcvr: any): Handler {
                     case 'object':
                         r.return(new Error(e.message));
                     default:
-                        r.return(new Error("unknown error: "+e));
-                  }
+                        r.return(new Error("unknown error: " + e));
+                }
             }
-            
+
         }
     };
 }
@@ -380,9 +380,9 @@ export function Export(v: any): Handler {
         }
     }
     return {
-        serveRPC: async function(r: Responder, c: Call) {
+        serveRPC: async function (r: Responder, c: Call) {
             if (!handlers.hasOwnProperty(c.method)) {
-                r.return(new Error("method handler does not exist for this destination: "+c.method));
+                r.return(new Error("method handler does not exist for this destination: " + c.method));
                 return;
             }
             await handlers[c.method].serveRPC(r, c);
@@ -391,7 +391,7 @@ export function Export(v: any): Handler {
 }
 
 function uuid4(): string {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(cc) {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (cc) {
         var rr = Math.random() * 16 | 0; return (cc === 'x' ? rr : (rr & 0x3 | 0x8)).toString(16);
     });
 }
@@ -428,7 +428,7 @@ export class ObjectManager {
         var id = parts.pop();
         var v = this.values[id];
         if (!v) {
-            r.return(new Error("object not registered: "+c.objectPath));
+            r.return(new Error("object not registered: " + c.objectPath));
             return;
         }
         if (typeof v.serveRPC === "function") {
@@ -436,7 +436,7 @@ export class ObjectManager {
         } else {
             Export(v).serveRPC(r, c);
         }
-        
+
     }
 
     mount(api: API, path: string) {
@@ -465,6 +465,6 @@ class ManagedObject {
     }
 
     handle(): any {
-        return {"ObjectPath": this.path()};
+        return { "ObjectPath": this.path() };
     }
 }

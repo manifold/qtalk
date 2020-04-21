@@ -325,50 +325,49 @@ var Client = /** @class */ (function () {
     };
     Client.prototype.call = function (path, args) {
         return __awaiter(this, void 0, void 0, function () {
-            var ch, codec, header, resp, _a, e_2;
+            var resp, ch, codec, header, _a, e_2;
             return __generator(this, function (_b) {
                 switch (_b.label) {
                     case 0:
-                        _b.trys.push([0, 10, , 12]);
-                        return [4 /*yield*/, this.session.open()];
+                        resp = new Response();
+                        _b.label = 1;
                     case 1:
+                        _b.trys.push([1, 11, , 12]);
+                        return [4 /*yield*/, this.session.open()];
+                    case 2:
                         ch = _b.sent();
                         codec = new FrameCodec(ch, 2);
                         return [4 /*yield*/, codec.encode(new Call(path))];
-                    case 2:
-                        _b.sent();
-                        return [4 /*yield*/, codec.encode(args)];
                     case 3:
                         _b.sent();
-                        return [4 /*yield*/, codec.decode()];
+                        return [4 /*yield*/, codec.encode(args)];
                     case 4:
-                        header = _b.sent();
-                        if (!(header.Error !== undefined && header.Error !== null)) return [3 /*break*/, 6];
-                        return [4 /*yield*/, ch.close()];
+                        _b.sent();
+                        return [4 /*yield*/, codec.decode()];
                     case 5:
+                        header = _b.sent();
+                        if (!(header.Error !== undefined && header.Error !== null)) return [3 /*break*/, 7];
+                        return [4 /*yield*/, ch.close()];
+                    case 6:
                         _b.sent();
                         return [2 /*return*/, Promise.reject(header.Error)];
-                    case 6:
-                        resp = new Response();
+                    case 7:
                         resp.error = header.Error;
                         resp.hijacked = header.Hijacked;
                         resp.channel = ch;
                         _a = resp;
                         return [4 /*yield*/, codec.decode()];
-                    case 7:
-                        _a.reply = _b.sent();
-                        if (!(resp.hijacked !== true)) return [3 /*break*/, 9];
-                        return [4 /*yield*/, ch.close()];
                     case 8:
-                        _b.sent();
-                        _b.label = 9;
-                    case 9: return [2 /*return*/, resp];
-                    case 10:
-                        e_2 = _b.sent();
+                        _a.reply = _b.sent();
+                        if (!(resp.hijacked !== true)) return [3 /*break*/, 10];
                         return [4 /*yield*/, ch.close()];
-                    case 11:
+                    case 9:
                         _b.sent();
-                        console.error(e_2);
+                        _b.label = 10;
+                    case 10: return [2 /*return*/, resp];
+                    case 11:
+                        e_2 = _b.sent();
+                        console.error(e_2, path, args, resp);
                         return [3 /*break*/, 12];
                     case 12: return [2 /*return*/];
                 }

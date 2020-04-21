@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 
@@ -75,11 +76,13 @@ func (a *api) ServeAPI(sess mux.Session, ch mux.Channel, c Codec) {
 	var call Call
 	err := dec.Decode(&call)
 	if err != nil {
-		panic(err)
+		log.Println("qrpc.ServeAPI:", err)
+		return
 	}
 	err = call.Parse()
 	if err != nil {
-		panic(err)
+		log.Println("qrpc.ServeAPI:", err)
+		return
 	}
 	call.Decoder = dec
 	call.Caller = &Client{
