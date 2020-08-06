@@ -10,7 +10,7 @@ type Server struct {
 	Mux *RespondMux
 }
 
-func (s *Server) handleSession(sess mux.Session) {
+func (s *Server) Respond(sess mux.Session) {
 	for {
 		ch, err := sess.Accept()
 		if err != nil {
@@ -29,6 +29,6 @@ func (s *Server) Serve(l mux.Listener) error {
 		if err != nil {
 			return err
 		}
-		go s.handleSession(sess)
+		go s.Respond(sess)
 	}
 }
