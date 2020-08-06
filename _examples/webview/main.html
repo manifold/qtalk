@@ -1,0 +1,56 @@
+<html>
+    <head>
+        <link rel="stylesheet" href="./xterm.min.css" />
+        <script src="./xterm.min.js"></script>
+        <style>
+            body { 
+                margin: 0px; 
+                height: 100%;
+                background: black;
+            }
+            #terminal {
+                width: 100%;
+                height: 100%;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="terminal"></div>
+        <script type="module">
+            import * as qtalk from "./qtalk.bundle.js";
+
+            var term = new Terminal();
+            term.open(document.getElementById('terminal'));
+
+            (async () => {
+                let conn = await qtalk.Dial(`ws://${location.host}/`);
+                let sess = new qtalk.Session(conn);
+                let client = new qtalk.Client(sess, new qtalk.JSONCodec(true));
+                
+                
+                let lineBuf = "";
+                term.onData(async (data) => {
+                    if (data == "\r") {
+                        term.writeln("");
+                        let words = lineBuf.split(" ");
+                        let args = words.map((w) => (isNaN(w)) ? w : parseInt(w));
+                        console.log(args);
+                        lineBuf = "";
+                        let resp = await client.call(args[0], args.slice(1))
+                        if (resp.error) {
+                            term.writeln(`ERROR: ${resp.error}`);
+                        } else {
+                            term.writeln(resp.reply);
+                        }
+                        
+                    } else {
+                        lineBuf += data;
+                        term.write(data);
+                    }
+                });
+                
+            })();
+            
+        </script>
+    </body>
+</html>

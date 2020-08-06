@@ -1,7 +1,7 @@
 import * as internal from "./internal.ts";
 
 interface Caller {
-    call(method: string, args: any): Promise<Response>;
+    call(method: string, args: any): Promise<internal.Response>;
 }
 
 export class Call {
@@ -11,8 +11,8 @@ export class Call {
     caller: Caller|undefined;
     decode: any;
 
-    constructor(Destination: string) {
-        this.Destination = Destination;
+    constructor(destination: string) {
+        this.Destination = destination;
         if (this.Destination.length === 0) {
             throw new Error("no destination specified");
         }
@@ -31,57 +31,57 @@ export class Call {
 
 }
 
+export class Response {
+    error: string|undefined;
+    hijacked: boolean;
+    reply: any;
+    channel: internal.IChannel;
+
+    constructor(channel: internal.IChannel) {
+        this.channel = channel;
+        this.error = undefined;
+        this.hijacked = false;
+    }
+}
+
+
 
 export class Client implements Caller {
     session: internal.ISession;
-    api: internal.RespondMux;
+    codec: internal.Codec;
 
-    constructor(session: internal.ISession, api?: internal.RespondMux) {
+    constructor(session: internal.ISession, codec: internal.Codec) {
         this.session = session;
-        this.api = api;
+        this.codec = codec;        
     }
 
-    async serveAPI(): Promise<void> {
-        if (this.api === undefined) {
-            this.api = new internal.RespondMux();
-        }
-        while (true) {
-            var ch = await this.session.accept();
-            if (ch === undefined) {
-                return;
-            }
-            this.api.serveAPI(this.session, ch)
-            //await loopYield("client channel accept loop");
-        }
-    }
-
-    close(): Promise<void> {
-        return this.session.close();
-    }
-
-    async call(path: string, args: any): Promise<Response> {
-        var resp: Response = new Response();
+    async call(path: string, args: any): Promise<internal.Response> {
         try {
-            var ch = await this.session.open();
-            var codec = new internal.FrameCodec(ch, 2);
+            let ch = await this.session.open();
+            let resp: internal.Response = new internal.Response(ch);
+            let codec = new internal.FrameCodec(ch, this.codec, 2);
+            
             await codec.encode(new Call(path));
             await codec.encode(args);
 
-            var header: internal.ResponseHeader = await codec.decode();
+            let header: internal.ResponseHeader = await codec.decode();
             if (header.Error !== undefined && header.Error !== null) {
-                await ch.close();
-                return Promise.reject(header.Error);
+                // await ch.close();
+                // return Promise.reject(header.Error);
+                console.error(header);
             }
+            
             resp.error = header.Error;
             resp.hijacked = header.Hijacked;
-            resp.channel = ch;
             resp.reply = await codec.decode();
             if (resp.hijacked !== true) {
                 await ch.close();
             }
+            
             return resp;
         } catch (e) {
-            console.error(e, path, args, resp);
+            console.error(e, path, args);
+            return Promise.reject("call?");
             //await ch.close();
         }
     }

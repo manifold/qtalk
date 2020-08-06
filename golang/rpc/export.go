@@ -51,12 +51,12 @@ func exportFunc(fn interface{}, rcvr interface{}) (Handler, error) {
 		return nil, fmt.Errorf("takes only a function")
 	}
 
-	var params []reflect.Value
+	var baseParams []reflect.Value
 	if rcvr != nil {
 		if rt.NumIn() == 0 {
 			return nil, fmt.Errorf("expecting 1 receiver argument, got 0")
 		}
-		params = append(params, reflect.ValueOf(rcvr))
+		baseParams = append(baseParams, reflect.ValueOf(rcvr))
 	}
 
 	if rt.NumOut() > 2 {
@@ -64,16 +64,19 @@ func exportFunc(fn interface{}, rcvr interface{}) (Handler, error) {
 	}
 
 	var pt reflect.Type
-	if rt.NumIn() > len(params)+1 {
+	if rt.NumIn() > len(baseParams)+1 {
 		pt = reflect.TypeOf([]interface{}{})
 	}
-	if rt.NumIn() == len(params)+1 {
-		pt = rt.In(len(params))
+	if rt.NumIn() == len(baseParams)+1 {
+		pt = rt.In(len(baseParams))
 	}
 
 	errorInterface := reflect.TypeOf((*error)(nil)).Elem()
 
 	return HandlerFunc(func(r Responder, c *Call) {
+		var params []reflect.Value
+		copy(params, baseParams)
+
 		if pt != nil {
 			var pv reflect.Value
 			if pt.Kind() == reflect.Ptr {
@@ -92,7 +95,11 @@ func exportFunc(fn interface{}, rcvr interface{}) (Handler, error) {
 			switch pt.Kind() {
 			case reflect.Slice:
 				startIdx := len(params)
-				for idx, arg := range reflect.Indirect(pv).Interface().([]interface{}) {
+				args := reflect.Indirect(pv).Interface().([]interface{})
+				for idx, arg := range args {
+					if startIdx+idx >= rt.NumIn() {
+						break
+					}
 					if rt.In(startIdx+idx).Kind() == reflect.Int {
 						params = append(params, reflect.ValueOf(int(arg.(float64))))
 					} else {

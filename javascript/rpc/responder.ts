@@ -10,7 +10,17 @@ export interface Responder {
     hijack(v: any): Promise<internal.IChannel>;
 }
 
-export class responder implements Responder {
+export class ResponseHeader {
+    Error: string|undefined;
+    Hijacked: boolean;
+
+    constructor() {
+        this.Error = undefined;
+        this.Hijacked = false;
+    }
+}
+
+class responder implements Responder {
     header: ResponseHeader;
     ch: internal.IChannel;
     codec: internal.FrameCodec;
@@ -43,22 +53,35 @@ export class responder implements Responder {
     }
 }
 
-export class ResponseHeader {
-    Error: string;
-    Hijacked: boolean;
-}
+export async function Respond(session: internal.ISession, ch: internal.IChannel, mux: RespondMux): Promise<void> {
+    let codec = new internal.FrameCodec(ch, mux.codec);
+    let frame = await codec.decode();
 
-export class Response {
-    error: string;
-    hijacked: boolean;
-    reply: any;
-    channel: internal.IChannel;
+    let call = new internal.Call(frame.Destination);
+    
+    call.decode = () => codec.decode();
+    call.caller = new internal.Client(session, mux.codec);
+    
+    let header = new ResponseHeader();
+    let resp = new responder(ch, codec, header);
+    
+    let handler = mux.handler(call.Destination);
+    if (!handler) {
+        resp.return(new Error(`handler does not exist for this destination: ${call.Destination}`));
+        return;
+    }
+    
+    await handler.respondRPC(resp, call);
+    
+    return Promise.resolve();
 }
 
 export class RespondMux {
     handlers: { [key: string]: Handler; };
+    codec: internal.Codec;
 
-    constructor() {
+    constructor(codec: internal.Codec) {
+        this.codec = codec;
         this.handlers = {};
     }
 
@@ -66,15 +89,15 @@ export class RespondMux {
         this.handlers[path] = handler;
     }
 
-    bindFunc(path: string, handler: (r: Responder, c: Call) => void): void {
+    bindFunc(path: string, handler: (r: Responder, c: internal.Call) => void): void {
         this.bind(path, {
-            respondRPC: async (rr: Responder, cc: Call) => {
+            respondRPC: async (rr: Responder, cc: internal.Call) => {
                 await handler(rr, cc);
             }
         })
     }
 
-    handler(path: string): Handler {
+    handler(path: string): Handler|undefined {
         for (var p in this.handlers) {
             if (this.handlers.hasOwnProperty(p)) {
                 if (path.startsWith(p)) {
@@ -82,24 +105,7 @@ export class RespondMux {
                 }
             }
         }
-    }
-
-    async serveAPI(session: ISession, ch: IChannel): Promise<void> {
-        var codec = new FrameCodec(ch);
-        var cdata = await codec.decode();
-        var call = new Call(cdata.Destination);
-        call.parse();
-        call.decode = () => codec.decode();
-        call.caller = new Client(session);
-        var header = new ResponseHeader();
-        var resp = new responder(ch, codec, header);
-        var handler = this.handler(call.Destination);
-        if (!handler) {
-            resp.return(new Error("handler does not exist for this destination: " + call.Destination));
-            return;
-        }
-        await handler.respondRPC(resp, call);
-        return Promise.resolve();
+        return undefined;
     }
 }
 

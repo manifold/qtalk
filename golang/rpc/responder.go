@@ -29,7 +29,7 @@ type Responder interface {
 }
 
 type ResponseHeader struct {
-	Error    error
+	Error    *string
 	Hijacked bool // after parsing response, keep stream open for whatever protocol
 }
 
@@ -91,7 +91,10 @@ func (r *responder) Return(v interface{}) error {
 	if e, ok = v.(error); ok {
 		v = nil
 	}
-	r.header.Error = e
+	if e != nil {
+		var errStr = e.Error()
+		r.header.Error = &errStr
+	}
 	err := enc.Encode(r.header)
 	if err != nil {
 		return err
@@ -110,7 +113,10 @@ func (r *responder) Hijack(v interface{}) (mux.Channel, error) {
 	if e, ok = v.(error); ok {
 		v = nil
 	}
-	r.header.Error = e
+	if e != nil {
+		var errStr = e.Error()
+		r.header.Error = &errStr
+	}
 	r.header.Hijacked = true
 	err := enc.Encode(r.header)
 	if err != nil {

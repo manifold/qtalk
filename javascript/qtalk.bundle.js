@@ -98,7 +98,7 @@ let System, __instantiate;
   };
 })();
 
-System.register("api", [], function (exports_1, context_1) {
+System.register("mux/api", [], function (exports_1, context_1) {
     "use strict";
     var __moduleName = context_1 && context_1.id;
     return {
@@ -107,7 +107,7 @@ System.register("api", [], function (exports_1, context_1) {
         }
     };
 });
-System.register("codec/message", [], function (exports_2, context_2) {
+System.register("mux/codec/message", [], function (exports_2, context_2) {
     "use strict";
     var OpenID, OpenConfirmID, OpenFailureID, WindowAdjustID, DataID, EofID, CloseID, payloadSizes;
     var __moduleName = context_2 && context_2.id;
@@ -133,7 +133,7 @@ System.register("codec/message", [], function (exports_2, context_2) {
         }
     };
 });
-System.register("codec/encoder", ["codec/message"], function (exports_3, context_3) {
+System.register("mux/codec/encoder", ["mux/codec/message"], function (exports_3, context_3) {
     "use strict";
     var msg, Encoder;
     var __moduleName = context_3 && context_3.id;
@@ -223,7 +223,7 @@ System.register("codec/encoder", ["codec/message"], function (exports_3, context
         }
     };
 });
-System.register("util", [], function (exports_4, context_4) {
+System.register("mux/util", [], function (exports_4, context_4) {
     "use strict";
     var queue;
     var __moduleName = context_4 && context_4.id;
@@ -281,7 +281,7 @@ System.register("util", [], function (exports_4, context_4) {
         }
     };
 });
-System.register("codec/decoder", ["codec/message", "util"], function (exports_5, context_5) {
+System.register("mux/codec/decoder", ["mux/codec/message", "mux/util"], function (exports_5, context_5) {
     "use strict";
     var msg, util, Decoder;
     var __moduleName = context_5 && context_5.id;
@@ -394,7 +394,7 @@ System.register("codec/decoder", ["codec/message", "util"], function (exports_5,
         }
     };
 });
-System.register("codec/index", ["codec/message", "codec/encoder", "codec/decoder"], function (exports_6, context_6) {
+System.register("mux/codec/index", ["mux/codec/message", "mux/codec/encoder", "mux/codec/decoder"], function (exports_6, context_6) {
     "use strict";
     var __moduleName = context_6 && context_6.id;
     function exportStar_1(m) {
@@ -420,7 +420,7 @@ System.register("codec/index", ["codec/message", "codec/encoder", "codec/decoder
         }
     };
 });
-System.register("session", ["codec/index", "util", "internal"], function (exports_7, context_7) {
+System.register("mux/session", ["mux/codec/index", "mux/util", "mux/internal"], function (exports_7, context_7) {
     "use strict";
     var codec, util, internal, minPacketLength, maxPacketLength, Session;
     var __moduleName = context_7 && context_7.id;
@@ -553,7 +553,7 @@ System.register("session", ["codec/index", "util", "internal"], function (export
         }
     };
 });
-System.register("channel", ["util", "codec/index", "internal"], function (exports_8, context_8) {
+System.register("mux/channel", ["mux/util", "mux/codec/index", "mux/internal"], function (exports_8, context_8) {
     "use strict";
     var util, codec, internal, channelMaxPacket, channelWindowSize, Channel;
     var __moduleName = context_8 && context_8.id;
@@ -710,7 +710,7 @@ System.register("channel", ["util", "codec/index", "internal"], function (export
         }
     };
 });
-System.register("internal", ["session", "channel"], function (exports_9, context_9) {
+System.register("mux/internal", ["mux/session", "mux/channel"], function (exports_9, context_9) {
     "use strict";
     var __moduleName = context_9 && context_9.id;
     function exportStar_2(m) {
@@ -733,7 +733,7 @@ System.register("internal", ["session", "channel"], function (exports_9, context
         }
     };
 });
-System.register("transport/websocket", ["util"], function (exports_10, context_10) {
+System.register("mux/transport/websocket", ["mux/util"], function (exports_10, context_10) {
     "use strict";
     var util, Conn;
     var __moduleName = context_10 && context_10.id;
@@ -808,7 +808,7 @@ System.register("transport/websocket", ["util"], function (exports_10, context_1
         }
     };
 });
-System.register("index", ["internal", "transport/websocket"], function (exports_11, context_11) {
+System.register("mux/index", ["mux/internal", "mux/transport/websocket"], function (exports_11, context_11) {
     "use strict";
     var __moduleName = context_11 && context_11.id;
     function exportStar_3(m) {
@@ -831,8 +831,349 @@ System.register("index", ["internal", "transport/websocket"], function (exports_
         }
     };
 });
+System.register("rpc/codec", [], function (exports_12, context_12) {
+    "use strict";
+    var JSONCodec, FrameCodec;
+    var __moduleName = context_12 && context_12.id;
+    function sleep(ms) {
+        return new Promise(res => setTimeout(res, ms));
+    }
+    function loopYield(name) {
+        return Promise.resolve();
+    }
+    return {
+        setters: [],
+        execute: function () {
+            JSONCodec = class JSONCodec {
+                constructor(debug = false) {
+                    this.enc = new TextEncoder();
+                    this.dec = new TextDecoder("utf-8");
+                    this.debug = debug;
+                }
+                encode(v) {
+                    if (this.debug) {
+                        console.log("<<", v);
+                    }
+                    return this.enc.encode(JSON.stringify(v));
+                }
+                decode(buf) {
+                    let v = JSON.parse(this.dec.decode(buf));
+                    if (this.debug) {
+                        console.log(">>", v);
+                    }
+                    return v;
+                }
+            };
+            exports_12("JSONCodec", JSONCodec);
+            FrameCodec = class FrameCodec {
+                constructor(channel, codec, readLimit = -1) {
+                    this.channel = channel;
+                    this.codec = codec;
+                    this.buf = [];
+                    this.waiters = [];
+                    this.readLimit = readLimit;
+                    this.readCount = 0;
+                    this.readLoop();
+                }
+                async readLoop() {
+                    while (true) {
+                        if (this.readLimit > 0 && this.readCount >= this.readLimit) {
+                            return;
+                        }
+                        try {
+                            await loopYield("readloop");
+                            var lenPrefix = await this.channel.read(4);
+                            if (lenPrefix === undefined) {
+                                return;
+                            }
+                            var data = new DataView(lenPrefix.buffer);
+                            var size = data.getUint32(0);
+                            var buf = await this.channel.read(size);
+                            if (buf === undefined) {
+                                return;
+                            }
+                            this.readCount++;
+                            var v = this.codec.decode(buf);
+                            if (this.waiters.length > 0) {
+                                this.waiters.shift()(v);
+                                continue;
+                            }
+                            this.buf.push(v);
+                        }
+                        catch (e) {
+                            throw new Error("codec readLoop: " + e);
+                        }
+                    }
+                }
+                async encode(v) {
+                    let buf = this.codec.encode(v);
+                    let lenPrefix = new DataView(new ArrayBuffer(4));
+                    lenPrefix.setUint32(0, buf.byteLength);
+                    await this.channel.write(new Uint8Array(lenPrefix.buffer));
+                    await this.channel.write(buf);
+                    return Promise.resolve();
+                }
+                decode() {
+                    return new Promise((resolve, reject) => {
+                        if (this.buf.length > 0) {
+                            resolve(this.buf.shift());
+                            return;
+                        }
+                        this.waiters.push(resolve);
+                    });
+                }
+            };
+            exports_12("FrameCodec", FrameCodec);
+        }
+    };
+});
+System.register("rpc/responder", ["rpc/internal"], function (exports_13, context_13) {
+    "use strict";
+    var internal, ResponseHeader, responder, RespondMux;
+    var __moduleName = context_13 && context_13.id;
+    async function Respond(session, ch, mux) {
+        let codec = new internal.FrameCodec(ch, mux.codec);
+        let frame = await codec.decode();
+        let call = new internal.Call(frame.Destination);
+        call.decode = () => codec.decode();
+        call.caller = new internal.Client(session, mux.codec);
+        let header = new ResponseHeader();
+        let resp = new responder(ch, codec, header);
+        let handler = mux.handler(call.Destination);
+        if (!handler) {
+            resp.return(new Error(`handler does not exist for this destination: ${call.Destination}`));
+            return;
+        }
+        await handler.respondRPC(resp, call);
+        return Promise.resolve();
+    }
+    exports_13("Respond", Respond);
+    return {
+        setters: [
+            function (internal_3) {
+                internal = internal_3;
+            }
+        ],
+        execute: function () {
+            ResponseHeader = class ResponseHeader {
+                constructor() {
+                    this.Error = undefined;
+                    this.Hijacked = false;
+                }
+            };
+            exports_13("ResponseHeader", ResponseHeader);
+            responder = class responder {
+                constructor(ch, codec, header) {
+                    this.ch = ch;
+                    this.codec = codec;
+                    this.header = header;
+                }
+                async return(v) {
+                    if (v instanceof Error) {
+                        this.header.Error = v.message;
+                        v = null;
+                    }
+                    await this.codec.encode(this.header);
+                    await this.codec.encode(v);
+                    return this.ch.close();
+                }
+                async hijack(v) {
+                    if (v instanceof Error) {
+                        this.header.Error = v.message;
+                        v = null;
+                    }
+                    this.header.Hijacked = true;
+                    await this.codec.encode(this.header);
+                    await this.codec.encode(v);
+                    return this.ch;
+                }
+            };
+            RespondMux = class RespondMux {
+                constructor(codec) {
+                    this.codec = codec;
+                    this.handlers = {};
+                }
+                bind(path, handler) {
+                    this.handlers[path] = handler;
+                }
+                bindFunc(path, handler) {
+                    this.bind(path, {
+                        respondRPC: async (rr, cc) => {
+                            await handler(rr, cc);
+                        }
+                    });
+                }
+                handler(path) {
+                    for (var p in this.handlers) {
+                        if (this.handlers.hasOwnProperty(p)) {
+                            if (path.startsWith(p)) {
+                                return this.handlers[p];
+                            }
+                        }
+                    }
+                    return undefined;
+                }
+            };
+            exports_13("RespondMux", RespondMux);
+        }
+    };
+});
+System.register("rpc/caller", ["rpc/internal"], function (exports_14, context_14) {
+    "use strict";
+    var internal, Call, Response, Client;
+    var __moduleName = context_14 && context_14.id;
+    return {
+        setters: [
+            function (internal_4) {
+                internal = internal_4;
+            }
+        ],
+        execute: function () {
+            Call = class Call {
+                constructor(destination) {
+                    this.Destination = destination;
+                    if (this.Destination.length === 0) {
+                        throw new Error("no destination specified");
+                    }
+                    if (this.Destination[0] == "/") {
+                        this.Destination = this.Destination.substr(1);
+                    }
+                    var parts = this.Destination.split("/");
+                    if (parts.length === 1) {
+                        this.objectPath = "/";
+                        this.method = parts[0];
+                        return;
+                    }
+                    this.method = parts.pop();
+                    this.objectPath = parts.join("/");
+                }
+            };
+            exports_14("Call", Call);
+            Response = class Response {
+                constructor(channel) {
+                    this.channel = channel;
+                    this.error = undefined;
+                    this.hijacked = false;
+                }
+            };
+            exports_14("Response", Response);
+            Client = class Client {
+                constructor(session, codec) {
+                    this.session = session;
+                    this.codec = codec;
+                }
+                async call(path, args) {
+                    try {
+                        let ch = await this.session.open();
+                        let resp = new internal.Response(ch);
+                        let codec = new internal.FrameCodec(ch, this.codec, 2);
+                        await codec.encode(new Call(path));
+                        await codec.encode(args);
+                        let header = await codec.decode();
+                        if (header.Error !== undefined && header.Error !== null) {
+                            console.error(header);
+                        }
+                        resp.error = header.Error;
+                        resp.hijacked = header.Hijacked;
+                        resp.reply = await codec.decode();
+                        if (resp.hijacked !== true) {
+                            await ch.close();
+                        }
+                        return resp;
+                    }
+                    catch (e) {
+                        console.error(e, path, args);
+                        return Promise.reject("call?");
+                    }
+                }
+            };
+            exports_14("Client", Client);
+        }
+    };
+});
+System.register("rpc/internal", ["mux/api", "rpc/codec", "rpc/responder", "rpc/caller"], function (exports_15, context_15) {
+    "use strict";
+    var __moduleName = context_15 && context_15.id;
+    function errable(p) {
+        return p
+            .then(ret => [ret, null])
+            .catch(err => [null, err]);
+    }
+    exports_15("errable", errable);
+    var exportedNames_1 = {
+        "errable": true
+    };
+    function exportStar_4(m) {
+        var exports = {};
+        for (var n in m) {
+            if (n !== "default" && !exportedNames_1.hasOwnProperty(n)) exports[n] = m[n];
+        }
+        exports_15(exports);
+    }
+    return {
+        setters: [
+            function (api_ts_1_1) {
+                exportStar_4(api_ts_1_1);
+            },
+            function (codec_ts_1_1) {
+                exportStar_4(codec_ts_1_1);
+            },
+            function (responder_ts_1_1) {
+                exportStar_4(responder_ts_1_1);
+            },
+            function (caller_ts_1_1) {
+                exportStar_4(caller_ts_1_1);
+            }
+        ],
+        execute: function () {
+        }
+    };
+});
+System.register("rpc/index", ["rpc/internal"], function (exports_16, context_16) {
+    "use strict";
+    var __moduleName = context_16 && context_16.id;
+    function exportStar_5(m) {
+        var exports = {};
+        for (var n in m) {
+            if (n !== "default") exports[n] = m[n];
+        }
+        exports_16(exports);
+    }
+    return {
+        setters: [
+            function (internal_ts_2_1) {
+                exportStar_5(internal_ts_2_1);
+            }
+        ],
+        execute: function () {
+        }
+    };
+});
+System.register("qtalk", ["mux/index", "rpc/index"], function (exports_17, context_17) {
+    "use strict";
+    var __moduleName = context_17 && context_17.id;
+    function exportStar_6(m) {
+        var exports = {};
+        for (var n in m) {
+            if (n !== "default") exports[n] = m[n];
+        }
+        exports_17(exports);
+    }
+    return {
+        setters: [
+            function (index_ts_1_1) {
+                exportStar_6(index_ts_1_1);
+            },
+            function (index_ts_2_1) {
+                exportStar_6(index_ts_2_1);
+            }
+        ],
+        execute: function () {
+        }
+    };
+});
 
-const __exp = __instantiate("index", false);
+const __exp = __instantiate("qtalk", false);
 export const minPacketLength = __exp["minPacketLength"];
 export const maxPacketLength = __exp["maxPacketLength"];
 export const Session = __exp["Session"];
@@ -841,3 +1182,12 @@ export const channelWindowSize = __exp["channelWindowSize"];
 export const Channel = __exp["Channel"];
 export const Dial = __exp["Dial"];
 export const Conn = __exp["Conn"];
+export const errable = __exp["errable"];
+export const JSONCodec = __exp["JSONCodec"];
+export const FrameCodec = __exp["FrameCodec"];
+export const Respond = __exp["Respond"];
+export const ResponseHeader = __exp["ResponseHeader"];
+export const RespondMux = __exp["RespondMux"];
+export const Call = __exp["Call"];
+export const Response = __exp["Response"];
+export const Client = __exp["Client"];

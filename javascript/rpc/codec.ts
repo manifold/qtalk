@@ -15,18 +15,45 @@ export interface Codec {
     decode(buf: Uint8Array): any
 }
 
+export class JSONCodec {
+    enc: TextEncoder;
+    dec: TextDecoder;
+    debug: boolean;
+
+    constructor(debug: boolean = false) {
+        this.enc = new TextEncoder();
+        this.dec = new TextDecoder("utf-8");
+        this.debug = debug;
+    }
+
+    encode(v: any): Uint8Array {
+        if (this.debug) {
+            console.log("<<", v);
+        }
+        return this.enc.encode(JSON.stringify(v));
+    }
+
+    decode(buf: Uint8Array): any {
+        let v = JSON.parse(this.dec.decode(buf));
+        if (this.debug) {
+            console.log(">>", v);
+        }
+        return v;
+    }
+}
+
 // only one codec per channel because of read loop!
 export class FrameCodec {
     channel: internal.IChannel;
-    codec: internal.Codec;
+    codec: Codec;
     buf: Array<any>;
     waiters: Array<any>;
     readLimit: number;
     readCount: number;
 
-    constructor(channel: internal.IChannel, readLimit: number = -1) {
+    constructor(channel: internal.IChannel, codec: Codec, readLimit: number = -1) {
         this.channel = channel;
-        this.codec = msgpack;
+        this.codec = codec;
         this.buf = [];
         this.waiters = [];
         this.readLimit = readLimit;
@@ -41,13 +68,13 @@ export class FrameCodec {
             }
             try {
                 await loopYield("readloop");
-                var sbuf = await this.channel.read(4);
-                if (sbuf === undefined) {
+                var lenPrefix = await this.channel.read(4);
+                if (lenPrefix === undefined) {
                     //console.log("DEBUG: readloop exited on length");
                     return;
                 }
-                var sdata = new DataView(new Uint8Array(sbuf).buffer);
-                var size = sdata.getUint32(0);
+                var data = new DataView(lenPrefix.buffer);
+                var size = data.getUint32(0);
                 var buf = await this.channel.read(size);
                 if (buf === undefined) {
                     //console.log("DEBUG: readloop exited on data");
@@ -67,10 +94,10 @@ export class FrameCodec {
     }
 
     async encode(v: any): Promise<void> {
-        var buf = this.codec.encode(v);
-        var sdata = new DataView(new ArrayBuffer(4));
-        sdata.setUint32(0, buf.length);
-        await this.channel.write(Uint8Array.from(sdata.buffer));
+        let buf = this.codec.encode(v);
+        let lenPrefix = new DataView(new ArrayBuffer(4));
+        lenPrefix.setUint32(0, buf.byteLength);
+        await this.channel.write(new Uint8Array(lenPrefix.buffer));
         await this.channel.write(buf);
         return Promise.resolve();
     }
