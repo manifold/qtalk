@@ -2,10 +2,7 @@ package mux
 
 import (
 	"context"
-	"io"
 	"net"
-
-	"github.com/manifold/qtalk/golang/mux/qmux"
 )
 
 type Session interface {
@@ -18,28 +15,30 @@ type Session interface {
 	Wait() error
 }
 
+// A Channel is an ordered, reliable, flow-controlled, duplex stream
+// that is multiplexed over a qmux connection.
 type Channel interface {
-	ID() uint32
 	Context() context.Context
+
+	// Read reads up to len(data) bytes from the channel.
+	Read(data []byte) (int, error)
+
+	// Write writes len(data) bytes to the channel.
+	Write(data []byte) (int, error)
+
+	// Close signals end of channel use. No data may be sent after this
+	// call.
+	Close() error
+
+	// CloseWrite signals the end of sending in-band
+	// data. The other side may still send data
 	CloseWrite() error
 
-	io.Reader
-	io.Writer
-	io.Closer
+	ID() uint32
 }
 
 type Listener interface {
 	Close() error
 	Addr() net.Addr
 	Accept() (Session, error)
-}
-
-func NewSession(conn net.Conn, ctx context.Context) Session {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return &qmuxSession{
-		Session: qmux.WithContext(qmux.NewSession(conn), ctx),
-		ctx:     ctx,
-	}
 }

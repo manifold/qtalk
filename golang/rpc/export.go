@@ -6,7 +6,8 @@ import (
 	"reflect"
 )
 
-func Must(h Handler, err error) Handler {
+func MustExport(v interface{}) Handler {
+	h, err := Export(v)
 	if err != nil {
 		panic(err)
 	}
@@ -14,95 +15,98 @@ func Must(h Handler, err error) Handler {
 }
 
 func Export(v interface{}) (Handler, error) {
-	reflectedType := reflect.TypeOf(v)
-	if reflectedType.Kind() == reflect.Func {
+	rt := reflect.TypeOf(v)
+	if rt.Kind() == reflect.Func {
 		return exportFunc(v, nil)
 	}
+	return exportStruct(rt, v)
+}
 
-	methodHandlers := make(map[string]Handler)
-	for i := 0; i < reflectedType.NumMethod(); i++ {
-		rmethod := reflectedType.Method(i)
-		handler, err := exportFunc(rmethod.Func.Interface(), v)
+func exportStruct(t reflect.Type, rcvr interface{}) (Handler, error) {
+	handlers := make(map[string]Handler)
+	for i := 0; i < t.NumMethod(); i++ {
+		method := t.Method(i)
+		handler, err := exportFunc(method.Func.Interface(), rcvr)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %s", rmethod.Name, err.Error())
+			return nil, fmt.Errorf("unable to export method %s: %s", method.Name, err.Error())
 		}
-		methodHandlers[rmethod.Name] = handler
+		handlers[method.Name] = handler
 	}
+
 	return HandlerFunc(func(r Responder, c *Call) {
-		handler, ok := methodHandlers[c.Method]
+		handler, ok := handlers[c.Method]
 		if !ok {
 			r.Return(errors.New("method handler does not exist for this destination"))
 			return
 		}
-		handler.ServeRPC(r, c)
+		handler.RespondRPC(r, c)
 	}), nil
 }
 
 func exportFunc(fn interface{}, rcvr interface{}) (Handler, error) {
-	reflectedFn := reflect.ValueOf(fn)
+	rfn := reflect.ValueOf(fn)
+	rt := reflect.TypeOf(fn)
 
-	reflectedType := reflect.TypeOf(fn)
-	if reflectedType.Kind() != reflect.Func {
+	if rt.Kind() != reflect.Func {
 		return nil, fmt.Errorf("takes only a function")
 	}
-	var hasParam bool
+
+	var params []reflect.Value
 	if rcvr != nil {
-		if reflectedType.NumIn() > 2 {
-			return nil, fmt.Errorf("only supports 1 argument atm, got %d", reflectedType.NumIn())
+		if rt.NumIn() == 0 {
+			return nil, fmt.Errorf("expecting 1 receiver argument, got 0")
 		}
-		hasParam = reflectedType.NumIn() > 1
-	} else {
-		if reflectedType.NumIn() > 1 {
-			return nil, fmt.Errorf("only supports 1 argument atm, got %d", reflectedType.NumIn())
-		}
-		hasParam = reflectedType.NumIn() > 0
-	}
-	if reflectedType.NumOut() > 2 {
-		return nil, fmt.Errorf("only supports up to 1 return value and optional error")
+		params = append(params, reflect.ValueOf(rcvr))
 	}
 
-	var paramType reflect.Type
-	if hasParam {
-		if rcvr != nil {
-			paramType = reflectedType.In(1)
-		} else {
-			paramType = reflectedType.In(0)
-		}
-	} else {
-		var empty interface{}
-		paramType = reflect.TypeOf(empty)
+	if rt.NumOut() > 2 {
+		return nil, fmt.Errorf("expecting 1 return value and optional error, got >2")
 	}
+
+	var pt reflect.Type
+	if rt.NumIn() > len(params)+1 {
+		pt = reflect.TypeOf([]interface{}{})
+	}
+	if rt.NumIn() == len(params)+1 {
+		pt = rt.In(len(params))
+	}
+
 	errorInterface := reflect.TypeOf((*error)(nil)).Elem()
 
 	return HandlerFunc(func(r Responder, c *Call) {
-		var paramValue reflect.Value
-		if hasParam {
-			if paramType.Kind() == reflect.Ptr {
-				paramValue = reflect.New(paramType.Elem())
+		if pt != nil {
+			var pv reflect.Value
+			if pt.Kind() == reflect.Ptr {
+				pv = reflect.New(pt.Elem())
 			} else {
-				paramValue = reflect.New(paramType)
+				pv = reflect.New(pt)
 			}
 
-			err := c.Decode(paramValue.Interface())
+			err := c.Decode(pv.Interface())
 			if err != nil {
 				// arguments weren't what was expected,
 				// or any other error
 				panic(err)
 			}
-		}
 
-		var params []reflect.Value
-		if rcvr != nil {
-			params = append(params, reflect.ValueOf(rcvr))
-		}
-		if hasParam {
-			if paramType.Kind() == reflect.Ptr {
-				params = append(params, paramValue)
-			} else {
-				params = append(params, paramValue.Elem())
+			switch pt.Kind() {
+			case reflect.Slice:
+				startIdx := len(params)
+				for idx, arg := range reflect.Indirect(pv).Interface().([]interface{}) {
+					if rt.In(startIdx+idx).Kind() == reflect.Int {
+						params = append(params, reflect.ValueOf(int(arg.(float64))))
+					} else {
+						params = append(params, reflect.ValueOf(arg))
+					}
+				}
+			case reflect.Ptr:
+				params = append(params, pv)
+			default:
+				params = append(params, pv.Elem())
 			}
 		}
-		retVals := reflectedFn.Call(params)
+
+		retVals := rfn.Call(params)
 
 		if len(retVals) == 0 {
 			r.Return(nil)
@@ -121,6 +125,7 @@ func exportFunc(fn interface{}, rcvr interface{}) (Handler, error) {
 				retVal = v
 			}
 		}
+
 		r.Return(retVal.Interface())
 
 	}), nil
