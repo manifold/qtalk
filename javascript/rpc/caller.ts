@@ -1,6 +1,6 @@
 import * as internal from "./internal.ts";
 
-interface Caller {
+export interface Caller {
     call(method: string, args: any): Promise<internal.Response>;
 }
 
@@ -44,9 +44,7 @@ export class Response {
     }
 }
 
-
-
-export class Client implements Caller {
+export class caller implements Caller {
     session: internal.ISession;
     codec: internal.Codec;
 

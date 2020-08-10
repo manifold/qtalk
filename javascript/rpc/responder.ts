@@ -60,7 +60,7 @@ export async function Respond(session: internal.ISession, ch: internal.IChannel,
     let call = new internal.Call(frame.Destination);
     
     call.decode = () => codec.decode();
-    call.caller = new internal.Client(session, mux.codec);
+    call.caller = new internal.caller(session, mux.codec);
     
     let header = new ResponseHeader();
     let resp = new responder(ch, codec, header);
@@ -85,6 +85,7 @@ export class RespondMux {
         this.handlers = {};
     }
 
+    // TODO: make more like Go's RespondMux#Bind, can take Handler, HandlerFunc, or tries to export
     bind(path: string, handler: Handler): void {
         this.handlers[path] = handler;
     }

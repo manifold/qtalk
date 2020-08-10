@@ -1,10 +1,11 @@
 import * as api from "./../api.ts";
+import * as internal from "./../internal.ts";
 import * as util from "./../util.ts";
 
-export function Dial(addr: string): Promise<api.IConn> {
+export function Dial(addr: string, debug: boolean = false): Promise<api.ISession> {
     return new Promise((resolve, reject) => {
         var socket = new WebSocket(addr);
-        socket.onopen = () => resolve(new Conn(socket));
+        socket.onopen = () => resolve(new internal.Session(new Conn(socket), debug));
         socket.onerror = (err) => reject(err);
     })
 }

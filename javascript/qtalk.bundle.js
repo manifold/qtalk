@@ -733,20 +733,23 @@ System.register("mux/internal", ["mux/session", "mux/channel"], function (export
         }
     };
 });
-System.register("mux/transport/websocket", ["mux/util"], function (exports_10, context_10) {
+System.register("mux/transport/websocket", ["mux/internal", "mux/util"], function (exports_10, context_10) {
     "use strict";
-    var util, Conn;
+    var internal, util, Conn;
     var __moduleName = context_10 && context_10.id;
-    function Dial(addr) {
+    function Dial(addr, debug = false) {
         return new Promise((resolve, reject) => {
             var socket = new WebSocket(addr);
-            socket.onopen = () => resolve(new Conn(socket));
+            socket.onopen = () => resolve(new internal.Session(new Conn(socket), debug));
             socket.onerror = (err) => reject(err);
         });
     }
     exports_10("Dial", Dial);
     return {
         setters: [
+            function (internal_3) {
+                internal = internal_3;
+            },
             function (util_4) {
                 util = util_4;
             }
@@ -936,7 +939,7 @@ System.register("rpc/responder", ["rpc/internal"], function (exports_13, context
         let frame = await codec.decode();
         let call = new internal.Call(frame.Destination);
         call.decode = () => codec.decode();
-        call.caller = new internal.Client(session, mux.codec);
+        call.caller = new internal.caller(session, mux.codec);
         let header = new ResponseHeader();
         let resp = new responder(ch, codec, header);
         let handler = mux.handler(call.Destination);
@@ -950,8 +953,8 @@ System.register("rpc/responder", ["rpc/internal"], function (exports_13, context
     exports_13("Respond", Respond);
     return {
         setters: [
-            function (internal_3) {
-                internal = internal_3;
+            function (internal_4) {
+                internal = internal_4;
             }
         ],
         execute: function () {
@@ -1020,12 +1023,12 @@ System.register("rpc/responder", ["rpc/internal"], function (exports_13, context
 });
 System.register("rpc/caller", ["rpc/internal"], function (exports_14, context_14) {
     "use strict";
-    var internal, Call, Response, Client;
+    var internal, Call, Response, caller;
     var __moduleName = context_14 && context_14.id;
     return {
         setters: [
-            function (internal_4) {
-                internal = internal_4;
+            function (internal_5) {
+                internal = internal_5;
             }
         ],
         execute: function () {
@@ -1057,7 +1060,7 @@ System.register("rpc/caller", ["rpc/internal"], function (exports_14, context_14
                 }
             };
             exports_14("Response", Response);
-            Client = class Client {
+            caller = class caller {
                 constructor(session, codec) {
                     this.session = session;
                     this.codec = codec;
@@ -1087,19 +1090,56 @@ System.register("rpc/caller", ["rpc/internal"], function (exports_14, context_14
                     }
                 }
             };
-            exports_14("Client", Client);
+            exports_14("caller", caller);
         }
     };
 });
-System.register("rpc/internal", ["mux/api", "rpc/codec", "rpc/responder", "rpc/caller"], function (exports_15, context_15) {
+System.register("rpc/peer", ["rpc/internal"], function (exports_15, context_15) {
     "use strict";
+    var internal, Peer;
     var __moduleName = context_15 && context_15.id;
+    return {
+        setters: [
+            function (internal_6) {
+                internal = internal_6;
+            }
+        ],
+        execute: function () {
+            Peer = class Peer {
+                constructor(session, codec) {
+                    this.session = session;
+                    this.caller = new internal.caller(session, codec);
+                    this.responder = new internal.RespondMux(codec);
+                }
+                async respond() {
+                    while (true) {
+                        let ch = await this.session.accept();
+                        internal.Respond(this.session, ch, this.responder);
+                    }
+                }
+                async call(path, args) {
+                    return this.caller.call(path, args);
+                }
+                bind(path, handler) {
+                    this.responder.bind(path, handler);
+                }
+                bindFunc(path, handler) {
+                    this.responder.bindFunc(path, handler);
+                }
+            };
+            exports_15("Peer", Peer);
+        }
+    };
+});
+System.register("rpc/internal", ["mux/api", "rpc/codec", "rpc/responder", "rpc/caller", "rpc/peer"], function (exports_16, context_16) {
+    "use strict";
+    var __moduleName = context_16 && context_16.id;
     function errable(p) {
         return p
             .then(ret => [ret, null])
             .catch(err => [null, err]);
     }
-    exports_15("errable", errable);
+    exports_16("errable", errable);
     var exportedNames_1 = {
         "errable": true
     };
@@ -1108,7 +1148,7 @@ System.register("rpc/internal", ["mux/api", "rpc/codec", "rpc/responder", "rpc/c
         for (var n in m) {
             if (n !== "default" && !exportedNames_1.hasOwnProperty(n)) exports[n] = m[n];
         }
-        exports_15(exports);
+        exports_16(exports);
     }
     return {
         setters: [
@@ -1123,21 +1163,24 @@ System.register("rpc/internal", ["mux/api", "rpc/codec", "rpc/responder", "rpc/c
             },
             function (caller_ts_1_1) {
                 exportStar_4(caller_ts_1_1);
+            },
+            function (peer_ts_1_1) {
+                exportStar_4(peer_ts_1_1);
             }
         ],
         execute: function () {
         }
     };
 });
-System.register("rpc/index", ["rpc/internal"], function (exports_16, context_16) {
+System.register("rpc/index", ["rpc/internal"], function (exports_17, context_17) {
     "use strict";
-    var __moduleName = context_16 && context_16.id;
+    var __moduleName = context_17 && context_17.id;
     function exportStar_5(m) {
         var exports = {};
         for (var n in m) {
             if (n !== "default") exports[n] = m[n];
         }
-        exports_16(exports);
+        exports_17(exports);
     }
     return {
         setters: [
@@ -1149,15 +1192,15 @@ System.register("rpc/index", ["rpc/internal"], function (exports_16, context_16)
         }
     };
 });
-System.register("qtalk", ["mux/index", "rpc/index"], function (exports_17, context_17) {
+System.register("qtalk", ["mux/index", "rpc/index"], function (exports_18, context_18) {
     "use strict";
-    var __moduleName = context_17 && context_17.id;
+    var __moduleName = context_18 && context_18.id;
     function exportStar_6(m) {
         var exports = {};
         for (var n in m) {
             if (n !== "default") exports[n] = m[n];
         }
-        exports_17(exports);
+        exports_18(exports);
     }
     return {
         setters: [
@@ -1190,4 +1233,5 @@ export const ResponseHeader = __exp["ResponseHeader"];
 export const RespondMux = __exp["RespondMux"];
 export const Call = __exp["Call"];
 export const Response = __exp["Response"];
-export const Client = __exp["Client"];
+export const caller = __exp["caller"];
+export const Peer = __exp["Peer"];
