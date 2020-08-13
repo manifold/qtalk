@@ -30,5 +30,29 @@ export class Peer {
         this.responder.bindFunc(path, handler);
     }
 
+}
 
+export function CallProxy(caller: internal.Caller): any {
+    return new Proxy(caller, {
+        get: (t,p,r) => {
+            let prop = p as string;
+            if (prop.startsWith("$")) {
+                return async (...args: any[]) => {
+                    let params: any = args;
+                    if (args.length === 1) {
+                        params = args[0];
+                    }
+                    if (args.length === 0) {
+                        params = undefined;
+                    }
+                    let resp = await caller.call(prop.slice(1), params);
+                    if (resp.error) {
+                        throw resp.error;
+                    }
+                    return resp.reply;
+                }
+            }
+            return Reflect.get(t, p, r);
+        }
+    })
 }

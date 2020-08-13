@@ -1098,6 +1098,31 @@ System.register("rpc/peer", ["rpc/internal"], function (exports_15, context_15) 
     "use strict";
     var internal, Peer;
     var __moduleName = context_15 && context_15.id;
+    function CallProxy(caller) {
+        return new Proxy(caller, {
+            get: (t, p, r) => {
+                let prop = p;
+                if (prop.startsWith("$")) {
+                    return async (...args) => {
+                        let params = args;
+                        if (args.length === 1) {
+                            params = args[0];
+                        }
+                        if (args.length === 0) {
+                            params = undefined;
+                        }
+                        let resp = await caller.call(prop.slice(1), params);
+                        if (resp.error) {
+                            throw resp.error;
+                        }
+                        return resp.reply;
+                    };
+                }
+                return Reflect.get(t, p, r);
+            }
+        });
+    }
+    exports_15("CallProxy", CallProxy);
     return {
         setters: [
             function (internal_6) {
@@ -1234,4 +1259,5 @@ export const RespondMux = __exp["RespondMux"];
 export const Call = __exp["Call"];
 export const Response = __exp["Response"];
 export const caller = __exp["caller"];
+export const CallProxy = __exp["CallProxy"];
 export const Peer = __exp["Peer"];
