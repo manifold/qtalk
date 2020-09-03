@@ -52,6 +52,7 @@ func Respond(sess mux.Session, ch mux.Channel, mux *RespondMux) {
 		return
 	}
 
+	call.Context = ch.Context()
 	call.Decoder = dec
 	call.Caller = &caller{
 		session: sess,
@@ -196,6 +197,5 @@ func (m *RespondMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			go Respond(sess, ch, m)
 		}
-		sess.Wait()
 	}).ServeHTTP(w, r)
 }

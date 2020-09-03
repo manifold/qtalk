@@ -1,7 +1,10 @@
 package rpc
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/manifold/qtalk/golang/mux"
@@ -24,6 +27,7 @@ type Call struct {
 	Method      string
 	Caller      Caller
 	Decoder     Decoder
+	Context     context.Context
 }
 
 func (c *Call) Parse() error {
@@ -110,6 +114,9 @@ func (c *caller) Call(path string, args, reply interface{}) (*Response, error) {
 		// read into throwaway buffer
 		var buf []byte
 		if err := dec.Decode(&buf); err != nil {
+			if errors.Is(err, io.EOF) {
+				return resp, nil
+			}
 			return resp, err
 		}
 	} else {
