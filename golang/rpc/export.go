@@ -133,7 +133,11 @@ func exportFunc(fn interface{}, rcvr interface{}) (Handler, error) {
 			}
 		}
 
-		r.Return(retVal.Interface())
+		if !retVal.IsValid() {
+			r.Return(nil)
+		} else {
+			r.Return(retVal.Interface())
+		}
 
 	}), nil
 }
