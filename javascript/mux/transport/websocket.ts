@@ -2,11 +2,12 @@ import * as api from "./../api.ts";
 import * as internal from "./../internal.ts";
 import * as util from "./../util.ts";
 
-export function Dial(addr: string, debug: boolean = false): Promise<api.ISession> {
-    return new Promise((resolve, reject) => {
+export function Dial(addr: string, debug: boolean = false, onclose?: () => void): Promise<api.ISession> {
+    return new Promise((resolve) => {
         var socket = new WebSocket(addr);
         socket.onopen = () => resolve(new internal.Session(new Conn(socket), debug));
-        socket.onerror = (err) => reject(err);
+        //socket.onerror = (err) => console.error("qtalk", err);
+        if (onclose) socket.onclose = onclose;
     })
 }
 
@@ -31,8 +32,12 @@ export class Conn implements api.IConn {
                 if (waiter) waiter();
             }
         };
-        this.socket.onclose = () => this.close();
-        this.socket.onerror = (err) => console.log("err", err);
+        let onclose = this.socket.onclose;
+        this.socket.onclose = (e: CloseEvent) => {
+            if (onclose) onclose.bind(this.socket)(e);
+            this.close();
+        }
+        //this.socket.onerror = (err) => console.error("qtalk", err);
     }
  
     read(len: number): Promise<Uint8Array|undefined> {

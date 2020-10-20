@@ -737,11 +737,12 @@ System.register("mux/transport/websocket", ["mux/internal", "mux/util"], functio
     "use strict";
     var internal, util, Conn;
     var __moduleName = context_10 && context_10.id;
-    function Dial(addr, debug = false) {
-        return new Promise((resolve, reject) => {
+    function Dial(addr, debug = false, onclose) {
+        return new Promise((resolve) => {
             var socket = new WebSocket(addr);
             socket.onopen = () => resolve(new internal.Session(new Conn(socket), debug));
-            socket.onerror = (err) => reject(err);
+            if (onclose)
+                socket.onclose = onclose;
         });
     }
     exports_10("Dial", Dial);
@@ -771,8 +772,12 @@ System.register("mux/transport/websocket", ["mux/internal", "mux/util"], functio
                                 waiter();
                         }
                     };
-                    this.socket.onclose = () => this.close();
-                    this.socket.onerror = (err) => console.log("err", err);
+                    let onclose = this.socket.onclose;
+                    this.socket.onclose = (e) => {
+                        if (onclose)
+                            onclose.bind(this.socket)(e);
+                        this.close();
+                    };
                 }
                 read(len) {
                     return new Promise((resolve) => {
