@@ -107,7 +107,7 @@ func (c *caller) Call(path string, args, reply interface{}) (*Response, error) {
 		Reply:          reply,
 	}
 	if resp.Error != nil {
-		return resp, fmt.Errorf("remote: %s", resp.Error)
+		return resp, fmt.Errorf("remote: %s", *(resp.Error))
 	}
 
 	if reply == nil {
