@@ -106,6 +106,9 @@ func exportFunc(fn interface{}, rcvr interface{}) (Handler, error) {
 						params = append(params, reflect.ValueOf(arg))
 					}
 				}
+				if len(args) < rt.NumIn() {
+					params = append(params, reflect.ValueOf(c))
+				}
 			case reflect.Ptr:
 				params = append(params, pv)
 			default:
