@@ -1,0 +1,19 @@
+<html>
+<body>
+open js console ..
+<script type="module">
+  import * as qtalk from "./qtalk.bundle.js";
+
+  (async () => {
+    var session = await qtalk.Dial(`ws://${location.host}/`);
+    var caller = new qtalk.caller(session, new qtalk.JSONCodec(true));
+    var upperRes = await caller.call("upper", "some text");
+    console.log("upper result:", upperRes.reply);
+
+    var addRes = await caller.call("add", [4,5]);
+    console.log("add result:", addRes.reply);
+
+  })();
+</script>
+</body>
+</html>
