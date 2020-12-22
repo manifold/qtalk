@@ -151,15 +151,22 @@ func NewRespondMux(codec Codec) *RespondMux {
 // Bind makes a Handler accessible at a path. Non-Handlers
 // are exported with MustExport.
 func (m *RespondMux) Bind(path string, v interface{}) {
-	var handler Handler
+	var handlers map[string]Handler
 	if h, ok := v.(Handler); ok {
-		handler = h
+		handlers = map[string]Handler{"": h}
 	} else {
-		handler = MustExport(v)
+		handlers = MustExport(v)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.handlers[path] = handler
+	for p, h := range handlers {
+		if path != "" && p != "" {
+			p = strings.Join([]string{path, p}, ".")
+		} else {
+			p = strings.Join([]string{path, p}, "")
+		}
+		m.handlers[p] = h
+	}
 }
 
 func Bind(path string, v interface{}) {

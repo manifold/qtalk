@@ -1,12 +1,11 @@
 package rpc
 
 import (
-	"errors"
 	"fmt"
 	"reflect"
 )
 
-func MustExport(v interface{}) Handler {
+func MustExport(v interface{}) map[string]Handler {
 	h, err := Export(v)
 	if err != nil {
 		panic(err)
@@ -14,15 +13,16 @@ func MustExport(v interface{}) Handler {
 	return h
 }
 
-func Export(v interface{}) (Handler, error) {
+func Export(v interface{}) (map[string]Handler, error) {
 	rt := reflect.TypeOf(v)
 	if rt.Kind() == reflect.Func {
-		return exportFunc(v, nil)
+		h, e := exportFunc(v, nil)
+		return map[string]Handler{"": h}, e
 	}
 	return exportStruct(rt, v)
 }
 
-func exportStruct(t reflect.Type, rcvr interface{}) (Handler, error) {
+func exportStruct(t reflect.Type, rcvr interface{}) (map[string]Handler, error) {
 	handlers := make(map[string]Handler)
 	for i := 0; i < t.NumMethod(); i++ {
 		method := t.Method(i)
@@ -32,15 +32,7 @@ func exportStruct(t reflect.Type, rcvr interface{}) (Handler, error) {
 		}
 		handlers[method.Name] = handler
 	}
-
-	return HandlerFunc(func(r Responder, c *Call) {
-		handler, ok := handlers[c.Method]
-		if !ok {
-			r.Return(errors.New("method handler does not exist for this destination"))
-			return
-		}
-		handler.RespondRPC(r, c)
-	}), nil
+	return handlers, nil
 }
 
 func exportFunc(fn interface{}, rcvr interface{}) (Handler, error) {
@@ -52,10 +44,12 @@ func exportFunc(fn interface{}, rcvr interface{}) (Handler, error) {
 	}
 
 	var baseParams []reflect.Value
+	var hasReceiver bool
 	if rcvr != nil {
 		if rt.NumIn() == 0 {
 			return nil, fmt.Errorf("expecting 1 receiver argument, got 0")
 		}
+		hasReceiver = true
 		baseParams = append(baseParams, reflect.ValueOf(rcvr))
 	}
 
@@ -75,7 +69,9 @@ func exportFunc(fn interface{}, rcvr interface{}) (Handler, error) {
 
 	return HandlerFunc(func(r Responder, c *Call) {
 		var params []reflect.Value
-		copy(params, baseParams)
+		for _, p := range baseParams {
+			params = append(params, p)
+		}
 
 		if pt != nil {
 			var pv reflect.Value
@@ -87,6 +83,9 @@ func exportFunc(fn interface{}, rcvr interface{}) (Handler, error) {
 
 			err := c.Decode(pv.Interface())
 			if err != nil {
+				var debug interface{}
+				c.Decode(&debug)
+				fmt.Println(debug)
 				// arguments weren't what was expected,
 				// or any other error
 				panic(err)
@@ -106,7 +105,11 @@ func exportFunc(fn interface{}, rcvr interface{}) (Handler, error) {
 						params = append(params, reflect.ValueOf(arg))
 					}
 				}
-				if len(args) < rt.NumIn() {
+				expected := rt.NumIn()
+				if hasReceiver {
+					expected--
+				}
+				if len(args) < expected {
 					params = append(params, reflect.ValueOf(c))
 				}
 			case reflect.Ptr:
@@ -116,6 +119,7 @@ func exportFunc(fn interface{}, rcvr interface{}) (Handler, error) {
 			}
 		}
 
+		// TODO capture panic: Call with too few input arguments
 		retVals := rfn.Call(params)
 
 		if len(retVals) == 0 {
