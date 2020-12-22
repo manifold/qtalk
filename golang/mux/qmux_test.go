@@ -2,6 +2,7 @@ package mux
 
 import (
 	"bytes"
+	"context"
 	"io/ioutil"
 	"net"
 	"testing"
@@ -23,7 +24,7 @@ func TestQmux(t *testing.T) {
 		fatal(err, t)
 		defer conn.Close()
 
-		sess := NewSession(conn)
+		sess := NewSession(context.Background(), conn)
 
 		ch, err := sess.Open()
 		fatal(err, t)
@@ -45,7 +46,7 @@ func TestQmux(t *testing.T) {
 	fatal(err, t)
 	defer conn.Close()
 
-	sess := NewSession(conn)
+	sess := NewSession(context.Background(), conn)
 
 	var ch Channel
 	t.Run("session accept", func(t *testing.T) {
