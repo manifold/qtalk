@@ -3,8 +3,8 @@
         <link rel="stylesheet" href="./xterm.min.css" />
         <script src="./xterm.min.js"></script>
         <style>
-            body { 
-                margin: 0px; 
+            body {
+                margin: 0px;
                 height: 100%;
                 background: black;
             }
@@ -23,11 +23,8 @@
             term.open(document.getElementById('terminal'));
 
             (async () => {
-                let conn = await qtalk.Dial(`ws://${location.host}/`);
-                let sess = new qtalk.Session(conn);
-                let client = new qtalk.Client(sess, new qtalk.JSONCodec(true));
-                
-                
+                let session = await qtalk.Dial(`ws://${location.host}/`);
+                let caller = new qtalk.caller(session, new qtalk.JSONCodec(true));
                 let lineBuf = "";
                 term.onData(async (data) => {
                     if (data == "\r") {
@@ -36,21 +33,21 @@
                         let args = words.map((w) => (isNaN(w)) ? w : parseInt(w));
                         console.log(args);
                         lineBuf = "";
-                        let resp = await client.call(args[0], args.slice(1))
+                        let resp = await caller.call(args[0], args.slice(1))
                         if (resp.error) {
                             term.writeln(`ERROR: ${resp.error}`);
                         } else {
                             term.writeln(resp.reply);
                         }
-                        
+
                     } else {
                         lineBuf += data;
                         term.write(data);
                     }
                 });
-                
+
             })();
-            
+
         </script>
     </body>
 </html>
