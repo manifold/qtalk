@@ -120,6 +120,7 @@ func exportFunc(fn interface{}, rcvr interface{}) (Handler, error) {
 		}
 
 		// TODO capture panic: Call with too few input arguments
+		// TODO type assertions for simple named types
 		retVals := rfn.Call(params)
 
 		if len(retVals) == 0 {
