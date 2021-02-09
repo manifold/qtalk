@@ -597,6 +597,12 @@ System.register("mux/channel", ["mux/util", "mux/codec/index", "mux/internal"], 
                                 resolve(undefined);
                                 return;
                             }
+                            if (!len && this.readBuf.length > 0) {
+                                let data = this.readBuf;
+                                this.readBuf = this.readBuf.slice(this.readBuf.length);
+                                resolve(data);
+                                return;
+                            }
                             if (this.readBuf.length >= len) {
                                 let data = this.readBuf.slice(0, len);
                                 this.readBuf = this.readBuf.slice(len);
@@ -784,6 +790,12 @@ System.register("mux/transport/websocket", ["mux/internal", "mux/util"], functio
                         var tryRead = () => {
                             if (this.isClosed) {
                                 resolve(undefined);
+                                return;
+                            }
+                            if (!len && this.buf.length > 0) {
+                                let data = this.buf;
+                                this.buf = this.buf.slice(this.buf.length);
+                                resolve(data);
                                 return;
                             }
                             if (this.buf.length >= len) {

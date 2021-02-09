@@ -43,8 +43,14 @@ export class Conn implements api.IConn {
     read(len: number): Promise<Uint8Array|undefined> {
         return new Promise((resolve) => {
             var tryRead = () => {
-                if (this.isClosed) {
+                if (this.isClosed) {    
                     resolve(undefined);
+                    return;
+                }
+                if (!len && this.buf.length > 0) {
+                    let data = this.buf;
+                    this.buf = this.buf.slice(this.buf.length);
+                    resolve(data);
                     return;
                 }
                 if (this.buf.length >= len) {

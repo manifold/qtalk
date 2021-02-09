@@ -48,6 +48,12 @@ export class Channel {
                     resolve(undefined);
                     return;
                 }
+				if (!len && this.readBuf.length > 0) {
+                    let data = this.readBuf;
+                    this.readBuf = this.readBuf.slice(this.readBuf.length);
+                    resolve(data);
+					return;
+				}
                 if (this.readBuf.length >= len) {
                     let data = this.readBuf.slice(0, len);
 					this.readBuf = this.readBuf.slice(len);
